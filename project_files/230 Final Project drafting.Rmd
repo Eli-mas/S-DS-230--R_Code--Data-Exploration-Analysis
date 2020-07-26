@@ -1,0 +1,429 @@
+---
+title: "230 Final Project drafting"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, include=F, tidy=T)
+```
+
+
+
+```{r,message=F,echo=F,include=F}
+full_data <- read.csv(paste0(filepath,"merge/full_merge.csv"),row.names=1,as.is=T)
+colnames(full_data) <- gsub("\\.","_",colnames(full_data))
+colnames(full_data) <- gsub("X","",colnames(full_data))
+head(full_data)
+grepcol(full_data, "2012_13")
+# testcolnames <- c(paste0("susp_","2013_14","_"),paste0(c("grad","abs","enroll",paste0("coursetake_",c("Lit","Sci","Math","Hist_soc","Lang","Art"))),"_","2013_14"))
+# full_data[,testcolnames]
+# testcolnames %in% colnames(full_data)
+# testcolnames
+head(full_data)[,967:984]
+grepcol(full_data,"staff")
+```
+
+```{r}
+attach(full_data)
+
+inds=remna(list(susp_2012_13_,BusSusp_2012_13))
+plot(susp_2012_13_[inds],BusSusp_2012_13[inds])
+(susp_2012_13_[inds])[susp_2012_13_[inds]==0]
+
+
+for(i in 1:5){
+    if (i==5) {next}
+    for (j in (i+1):5){
+        plot(full_data[,paste0("full_coursetake_",ct_an[i],"_","2013_14")],full_data[,paste0("full_coursetake_",ct_an[j],"_","2013_14")],main=paste0(ct_an[i],"--",ct_an[j]))
+    }
+}
+
+df_ct <- full_data[,grepcol(full_data,paste0(paste0("_",ct_an,"_"),collapse="|"))]
+df_ct <- df_ct[,grepcol(df_ct,"2013_14")]
+ct_cor <- cor(df_ct,use="pairwise.complete.obs")
+ct_sigcorr <- cor.mtest(df_ct, conf.level = .95)
+corrplot.mixed(ct_cor, lower.col="black", upper = "ellipse", tl.col = "black", number.cex=.7, order = "hclust", tl.pos = "lt", tl.cex=.7, p.mat =ct_sigcorr$p, sig.level = .05)
+###Why is this useful? Insight into potential for or absence of multicollinearity; further insight in the pairsJDRS plot
+#pairsJDRS(df_ct)
+
+#interesting that math and lit have highest correlation; also interesting that coursetaking in math and science have statistically significant negative correlation with art coursetaking
+
+
+# full_data[,testcolnames]
+
+detach(full_data)
+
+```
+
+
+```{r}
+cat_pos <- which(colnames(full_data)=="Category")
+# for (c in colnames(full_data)[(cat_pos+1):dim(full_data)[2]]) {
+#     # if(class(full_data[,c])=="character") print((full_data[,c])[is.na(as.numeric(full_data[,c]))]);
+#     # if(class(full_data[,c])=="character") full_data[,c] <- as.numeric(full_data[,c]);
+#     # print(class(full_data[,c]))
+#     # if(class(full_data[,c])=="character") print(full_data[1:10,c]);
+# }
+hist(full_data$enroll_2012_13,col="blue")
+hist(full_data$enroll_2012_13[full_data$enroll_2012_13<100],col="cyan")
+sum(full_data$enroll_2012_13 < 100)
+sum(full_data$enroll_2012_13 < 100)/dim(full_data)[1]
+full_data <- full_data[full_data$enroll_2012_13 >= 100,]
+hist(full_data$enroll_2012_13,col="chartreuse3")
+sum(full_data$enroll_2012_13 != as.integer(full_data$enroll_2012_13))
+full_data$gradelevels
+
+unique(full_data$gradelevels)
+full_data$gradelevels <- gsub("Pre K_6|K_6|K_4|Pre K_5|Pre K_4|1_5|K_5|1_6","elem",full_data$gradelevels)
+full_data$gradelevels <- gsub("7_8|6_8|5_8","mid",full_data$gradelevels)
+full_data$gradelevels <- gsub("9_12","high",full_data$gradelevels)
+full_data$gradelevels <- gsub("Pre K_12|K_12","mixed",full_data$gradelevels)
+full_data$gradelevels <- gsub("Pre K_8|6_12|K_8|4_8|1_8|7_12|8_12","mixed",full_data$gradelevels)
+full_data$gradelevels[!grepl("elem|mid|high|full|mixed",full_data$gradelevels)] <- "partial"
+
+barplot(table(full_data$gradelevels),las=2)
+```
+
+```{r}
+attach(full_data)
+aval <- .1
+log10_absent1213 <- log10(1+as.numeric(abs_2012_13))
+log10_absent1314 <- log10(1+as.numeric(abs_2013_14))
+par(lwd=3)
+hist(log10_absent1213,border="blue",col=alpha("blue", aval),xlab="log10(% students chronically absent + 1)",main="Chronic absenteeism, 2012-13")
+cols <- c("green","yellow","orange","red")
+for(i in 3:4){
+    hist(log10a((full_data[,paste0("abs_201",i,"_1",i+1)])),border=cols[i-2],col=alpha(cols[i-2], aval),add=T)
+}
+
+par(lwd=1)
+absent1213_1314_inds <- remna(list(log10_absent1213,log10_absent1314))
+plot(log10_absent1213[absent1213_1314_inds],log10_absent1314[absent1213_1314_inds],col="skyblue",pch=16,xlab="Adjusted log % chronic absenteeism 2012-13",ylab="Adjusted log % chronic absenteeism 2013-14")
+corna(log10_absent1213,log10_absent1314)
+
+10^(log10_absent1213[absent1213_1314_inds])[which(log10_absent1314[absent1213_1314_inds]<.1)]-1
+10^(log10_absent1314[absent1213_1314_inds])[which(log10_absent1314[absent1213_1314_inds]<.1)]-1
+#colnames(full_merge)[grepl("enroll",colnames(full_merge))]
+(full_data[,"enroll_2012_13"][absent1213_1314_inds])[which(log10_absent1314[absent1213_1314_inds]<.1)]
+detach(full_data)
+```
+
+
+```{r}
+#####THIS BOX: PROPERTIES THAT VARY BY SCHOOL TYPE
+##Incorporate:
+    # boxplot
+    # ANOVA
+
+attach(full_data)
+plotcols <- c("red","orange","yellow","chartreuse4","blue","violet")
+# par(mar=c(5,4,1,2))
+# boxplot(abs_2012_13~Category,las=2,ylab="% Chronically absent",main="Chronic absenteeism, 2012-13 term",col=plotcols)
+
+#par(mar=c(5,4,1,2))
+boxplot(log10a(abs_2012_13)~Category,las=2,ylab="adjusted log % Chronically absent",main="Chronic absenteeism by school type, 2012-13 term",col=plotcols)
+
+# stripplot(abs_2012_13~Category, jitter=.5, main = "Chronic absenteeism by school type",col="chartreuse4")
+stripplot(log10a(abs_2012_13)~Category, jitter=.5, main = "Chronic absenteeism by school type",col="green")
+
+y <- full_data$abs_2012_13
+x <- full_data$Category
+full_data_noncharter <- full_data[!grepl("Charter",full_data$Category),]
+dim(full_data)-dim(full_data_noncharter)
+inds <- remna(list(x,y))
+means <- tapply(y[inds], x[inds], mean)
+sds <- tapply(y[inds], x[inds], sd)
+print("New sds")
+print(sds)
+boxplot(y~x,las=2,ylab="4-yr graduation rate",main="Graduation rates by school type, 2012-13 term",col=plotcols)
+points(means,col="cyan",pch=16)
+
+
+print(summary(aov(y~x)))
+print("_____________________________")
+(welch_test <- oneway.test(y~x))
+myResPlots2(aov(y~x))
+
+detach(full_data)
+```
+
+```{r}
+attach(full_data)
+inds <- remna(list(grad_2012_13,Category))
+means <- tapply((grad_2012_13)[inds], (Category)[inds], mean)
+sds <- tapply((grad_2012_13)[inds], (Category)[inds], sd)
+
+#par(mar=c(5,4,1,2))
+boxplot(grad_2012_13~Category,las=2,ylab="4-yr graduation rate",main="Graduation rates by school type, 2012-13 term",col=plotcols)
+points(means,col="cyan",pch=16)
+
+# par(mar=c(5,4,1,2))
+# boxplot(log10a(grad_2012_13)~Category,las=2,ylab="adjusted log 4-yr graduation rate",main="Graduation rates by school type, 2012-13 term",col=plotcols)
+
+stripplot(grad_2012_13[inds]~Category[inds], jitter=.5, main = "Chronic absenteeism by school type",col="chartreuse4")
+print(means)
+print(sds)
+
+# stripplot(log10a(grad_2012_13)~Category, jitter=.5, main = "Graduation rates by school type",col="green")
+detach(full_data)
+```
+
+```{r}
+full_data_noncharter <- full_data[!grepl("Charter",full_data$Category),]
+attach(full_data_noncharter)
+
+################IN HERE: BOOTSTRAPPING, PERMUTATION & ANOVA
+
+##ANOVA
+print("_____________________________")
+y <- grad_2012_13
+x <- Category
+dim(full_data)-dim(full_data_noncharter)
+inds <- remna(list(x,y))
+means <- tapply(y[inds], x[inds], mean)
+sds <- tapply(y[inds], x[inds], sd)
+print("sds")
+print(sds)
+boxplot(y~x,las=2,ylab="4-yr graduation rate",main="Graduation rates by school type, 2012-13 term",col=plotcols)
+points(means,col="cyan",pch=16)
+
+
+print("- - - summary - - -")
+aov1 <- aov(y~x)
+print(Anova(aov1,type=3))
+print("-- -- -- -- -- -- -- -- --")
+(welch_test <- oneway.test(y~x))
+print("- - - /summary - - -")
+myResPlots2(aov1)
+bc <- boxCox(lm(y~x -1), lambda = bc_lambda)
+(lambda <- bc$x[which.max(bc$y)])
+tuk <- TukeyHSD(aov1)
+par(mar=c(5,6,4,2))
+plot(tuk,las=1)
+print("_____________________________")
+
+##BOOTSTRAPPING
+samples <- 10000
+inds <- remna(list(grad_2012_13,Category))
+g1213 <- grad_2012_13[inds]
+cattemp <- Category[inds]
+g1213 <- g1213[(cattemp=="Public") | (cattemp=="CTE")]
+cattemp <- cattemp[(cattemp=="Public") | (cattemp=="CTE")]
+res <- rep(NA, samples)
+g1213P <- g1213[cattemp == "Public"]    ;   Psum <- sum(g1213P)
+g1213CTE <- g1213[cattemp == "CTE"]     ;   CTEsum <- sum(g1213CTE)
+for(i in 1:samples){
+    sP <- sample(g1213P, Psum , replace = T)
+    sCTE <- sample(g1213CTE, CTEsum , replace = T)
+    res[i] <- mean(sCTE) - mean(sP)
+}
+
+print(paste("observed mean:",(graddif <- mean(g1213CTE)-mean(g1213P))))
+print(paste("bootstrapped confint:",paste((boot_confint <- quantile(res, c(0.025, 0.975))),collapse="  ")))
+#I'm digging R's ridiculous but useful syntax
+
+
+print("t-test")
+print(ttestres <- t.test(g1213 ~ cattemp))
+print("t-test conf.int")
+print(ttestres$conf.int)
+
+###WHY IS THE T-TEST INTERVAL SO MUCH LARGER THAN THE BOOTSTRAPPED INTERVAL?
+
+span <- 1.05*max(graddif - min(c(res,ttestres$conf.int,boot_confint)), max(c(res,ttestres$conf.int,boot_confint)) - graddif)
+hist(res, col="darkblue", main = "Bootstrapped Sample Means Diff in graduation rates: CTE/Public Schools", xlab = "dif(% grad rate)", breaks=20, xlim=graddif+c(-span,span))
+abline(v=ttestres$conf.int,lwd=3, col="red")
+abline(v=boot_confint,lwd=3, col="green", lty = 2)
+legend(12,1000, c("Original CI","Boot CI"), lwd=3, col = c("green","red"), lty = c(2,1))
+detach(full_data_noncharter)
+
+
+##PERMUTATION TEST
+#step 1: 'graddif' already defined
+#step 2: sampling
+permdif <- rep(NA,samples)
+for (i in 1:samples) {
+  catfalse <- sample(cattemp)
+  permdif[i] <- mean(g1213[catfalse == "CTE"]) -  mean(g1213[catfalse == "Public"])
+}
+#step 3: probability assessment
+hist(permdif, col = "yellow", main = "Permuted Sample Means Diff in Grad Rates", xlab = "dif(% grad rate)", breaks = 20)#, xlim = c(-4,3)
+abline(v = graddif, col="blue", lwd=3, xlim=c(-12,12))
+text(graddif-.5, 600 ,paste("Actual Diff in Means =", round(graddif,2)),srt = 90)
+text(6.25,1000,paste0("p-value=",mean(abs(permdif) >= graddif)))
+```
+
+```{r}
+attach(full_data)
+
+######## with BoxCox transformation
+print("_____________________________")
+y <- (full_data_noncharter$grad_2012_13)^lambda
+x <- full_data_noncharter$Category
+full_data_noncharter <- full_data[!grepl("Charter",full_data$Category),]
+dim(full_data)-dim(full_data_noncharter)
+inds <- remna(list(x,y))
+means <- tapply(y[inds], x[inds], mean)
+sds <- tapply(y[inds], x[inds], sd)
+print("New sds")
+print(sds)
+boxplot(y~x,las=2,ylab="4-yr graduation rate",main="Graduation rates by school type, 2012-13 term",col=plotcols)
+points(means,col="cyan",pch=16)
+
+
+print("- - - summary - - -")
+aov1 <- aov(y~x)
+
+print(Anova(aov1,type=3))
+
+print("-- -- -- -- -- -- -- -- --")
+(welch_test <- oneway.test(y~x))
+print("- - - /summary - - -")
+myResPlots2(aov1)
+tuk <- TukeyHSD(aov1)
+plot(tuk,las=1)
+print("_____________________________")
+
+detach(full_data)
+```
+
+```{r}
+#####THIS BOX: PROPERTIES THAT VARY BY SCHOOL LEVEL
+##Incorporate:
+    # boxplot
+    # ANOVA
+
+attach(full_data)
+
+y <- loga(abs_2012_13)
+x <- gradelevels
+
+# par(mar=c(5,4,1,2))
+# boxplot(y~x,las=2,ylab="% Chronically absent",main="Chronic absenteeism, 2012-13 term",col=plotcols)
+
+inds <- remna(list(x,y))
+means <- tapply(y[inds], x[inds], mean)
+sds <- tapply(y[inds], x[inds], sd)
+
+#par(mar=c(5,4,1,2))
+boxplot(y~x,las=2,ylab="adjusted log % Chronically absent",main="Chronic absenteeism by school type, 2012-13 term",col=plotcols)
+points(means,col="cyan",pch=16)
+
+# stripplot(y~x, jitter=.5, main = "Chronic absenteeism by school type",col="chartreuse4")
+stripplot(y~x, jitter=.5, main = "Chronic absenteeism by school type",col="green")
+
+print("New sds")
+print(sds)
+
+print("- - - summary - - -")
+aov1 <- aov(y~x)
+
+print(Anova(aov1,type=3))
+
+print("-- -- -- -- -- -- -- -- --")
+(welch_test <- oneway.test(y~x))
+print("- - - /summary - - -")
+myResPlots2(aov1)
+tuk <- TukeyHSD(aov1)
+plot(tuk,las=1)
+print("_____________________________")
+
+detach(full_data)
+```
+
+
+```{r}
+######FORWARD BOXES: HOW TO PREDICT HIGH SCHOOL GRADUATION --OR-- COLLEGE ENTRANCE/PERSISTENCE?
+##Incorporate:
+
+#First, correlation among grad rates
+df_grad <- full_data[grepl("high|mixed",full_data$gradelevels),grepl("grad_",colnames(full_data))]
+# row_NA <- rep(0,dim(df_grad)[1])
+# i <- 1
+# for (r in rownames(df_grad)){
+#     row_NA[i] <- sum(is.na(as.vector(df_grad[r,])))
+#     i <- i+1
+# }
+# df_grad <- df_grad[as.logical(!row_NA),]
+
+grad_cor <- cor(df_grad,use="pairwise.complete.obs")
+sigcorr <- cor.mtest(df_grad, conf.level = .95)
+corrplot.mixed(grad_cor, lower.col="black", upper = "ellipse", tl.col = "black", number.cex=.7, order = "hclust", tl.pos = "lt", tl.cex=.7, p.mat =sigcorr$p, sig.level = .05)
+pairsJDRS(df_grad)
+
+#Graduation rates are highly correalted
+#AND
+#correlation tends to be somewhat lower for years that are further apart from one another
+#Makes sense, means that graduation rates are more similar from one year to the next than for 4-5 years apart
+```
+
+
+```{r}
+grad_predict(full_data,"2013_14","r",opt="half")
+print("* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *")
+print("* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *")
+modfits(grad_susp)
+```
+
+```{r}
+grad_predict(full_data,"2013_14","c",opt="half")
+print("* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *")
+print("* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *")
+modfits(grad_susp)
+```
+
+
+```{r}
+#This is why we don't fit a model for data frame including both suspension counts and ISS/OSS <-- multicollinearity of ISS:susp
+grad_predict(full_data,"2013_14","f",pl=F)
+plot(grad_susp$susp,grad_susp$ISS,col="purple",pch=16,main="Suspension rate // normalized ISS count, 2012-13",xlab = "susp rate", ylab = "ISS count / enrollment")
+sort(nonna(grad_susp$Sci))
+```
+
+
+
+```{r}
+hist(full_data$abs_2013_14 - full_data$abs_2012_13)
+full_data_t <- as_tibble(full_data)
+abs_change <- unlist(select(full_data_t,abs_2013_14)-select(full_data_t,abs_2012_13),use.names = F)
+susp_change <- unlist(select(full_data_t,"susp_2013_14_")-select(full_data_t,"susp_2012_13_"),use.names = F)
+suppserv_change <- unlist(select(full_data_t,"dist_perpupil_suppserv_2013_14")-select(full_data_t,"dist_perpupil_suppserv_2012_13"),use.names = F)
+staffserv_change <- unlist(select(full_data_t,"dist_perpupil_staffserv_2013_14")-select(full_data_t,"dist_perpupil_staffserv_2012_13"),use.names = F)
+supplequip_change <- unlist(select(full_data_t,"dist_perpupil_supplequip_2013_14")-select(full_data_t,"dist_perpupil_supplequip_2012_13"),use.names = F)
+
+enroll_change <- unlist(select(full_data_t,"enroll_2013_14")-select(full_data_t,"enroll_2012_13"),use.names = F)
+grad_change <- unlist(select(full_data_t,grad_2013_14)-select(full_data_t,grad_2012_13),use.names = F)
+
+grad_change_cutoff <- 3
+grad_change_binomial <- grad_change
+grad_change_binomial[grad_change_binomial>=grad_change_cutoff] <- "increase"
+grad_change_binomial[grad_change_binomial<grad_change_cutoff] <- "non-increase"
+grad_change_binomial <- as.factor(grad_change_binomial)
+
+
+hist(abs_change)
+hist(grad_change)
+hist(susp_change)
+####THERE ARE VERY LOW AMOUNTS OF SCHOOLS WITH 'grad_change' BENEATH -5 OR ABOVE 10--IS THIS A PROBLEM?
+
+ml_mod <- glm(grad_change_binomial ~ abs_change + susp_change + suppserv_change + enroll_change + staffserv_change + supplequip_change, family=binomial)
+print("- - -summary- - -")
+summary(ml_mod)
+print("- - -odds ratio- - -")
+odds.ratio(ml_mod)
+devtab <- anova(ml_mod)
+print(paste0("Dev p-va: ",1-pchisq(devtab$Deviance[2],df = devtab$Df[2])))
+
+##ODD RESULTS -- odds ratio is above 1? And coefficient
+#anova(ml_mod, test="Chisq")
+
+grepcol(full_data_t,c("sb1415", "[^VSS]","grlv11","Math"))
+myResPlots2(lm(log(full_data_t$susp_2012_13_) ~ full_data_t$dist_perpupil_suppserv_2012_13))
+plot( full_data_t$dist_perpupil_suppserv_2012_13 , full_data_t$susp_2012_13_)
+```
+
+
+
+
+
+

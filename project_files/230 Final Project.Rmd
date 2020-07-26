@@ -1,0 +1,631 @@
+---
+title: "S&DS 230 Final Project"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, include=F, tidy=T)
+```
+```{r child = '230 Final Project -- functions.Rmd'}
+```
+
+
+
+
+
+#Introduction
+The motivation and background for this study is simple: I have a longstanding interest in eduation, and in locating educational data that I can analyze. The data for this project is unique in that it comes from a source with more information than is usually easy to access online. I am interested to get a basic feel for the data, sense of schools in CT, and some preliminary findings about what can be used to predict high school graduation. I would like to to develop this for college enrollment and persistence, but that is for another occasion.
+
+#Data
+There are many more variables in the dataset than are highlighted in this report. The main ones used are listed here with the format: Name (unit of analysis, data type): {description}
+
+* Enrollment (school, numeric): total number of students enrolled in a given year
+* Chronic absenteeism rate (school, numeric): the percentage of students chronically absent in a given year
+* Suspension rate (school, numeric): percentage of stuents suspended in a given year
+* Normalized ISS/OSS counts (school, numeric): counts of in-school and out-of-school suspensions given divided by school enrollment
+* Category (school, categorical): the type/sector of the school
+* District ID (school, categorical): the district to which the school belongs
+* Per-pupil spending (district, numeric): district-level spending per pupil, divided into several variables (ones used are spending on staff/instructional services and spending on support and administration)
+* Course-taking percentages (school, numeric): percentages of students enrolled in particular subjects (this report considers math, ELA, science, language, history, and arts)
+* Grade levels offered (school, categorical): a categorical variable which subsumes many different grade level combinations which a school may offer
+
+#Data cleaning
+To my appreciation, EdSight has done a fair amount of work to arrange data into easily accessible, clearly structured .csv files. Most all of these files contain information on the school level, and therein each school is listed along with a numeric code, name, district code, and district name, facilitating cross-file analysis. However, the information of interest is spread out over a fair number of distinct data files. The largest challenge in getting the data was merging data from ~three dozen csv files into one large compendium dataset. The unit of analysis was schools, which are embedded within distinct districts. The basic motivation and challanges were as follows:
+
+* It would be convenient to have a dataset where each school was allotted one row, with all relevant properties for that school defined in distinct columns; with this in mind,
+* Schools are not consistently included in each file;
+* There are plenty of missing values, which may be represented by more than one string;
+* In some datasets, results are disaggregated by subject type, grade level, or another qualifier, leading to schools being listed in multiple rows;
+* In such cases, the number of rows need not be consistent between different schools;
+* Some schools in the datasets are identified as pertaining to multiple districts, while others belong only to one; some are not identified as belonging to any;
+* Some datasets are at the district level, i.e. not disaggregated by school;
+* Some schools appear to be listed more than once in some files where they should be listed only once;
+* _And whatever other oddities and quirks emerged along the way..._
+
+The full data-merging program is a few hundred lines long, and will not be shown here (rmd is available). The basic process underlying the code is such:
+
+* Generate school-wise dataset for each data file:
+    + If the data file is structured to list one row per school, remove any rows with (unexpected) duplicate school IDs;
+    + Otherwise,
+        - If the file is disaggregated by subject (e.g. Math, ELA) and/or grade level (e.g. Grade 4, Kindergarten, Grade 12), the data is rearranged: from the columns which vary by subject or grade (i.e., column names which do not give name/ID for schools/districts), a new series of columns is generated which allots one column to each grade, subject, or grade-subject combination that may occur (these columns are named according to whatever grade/subject/combination produced them). The standardized naming of the columns makes it easy to isolate particular grade levels, subjects, or years in the fully merged dataset;
+        - If the file is disaggregated by some other type qualifier (e.g. a type of course offering, a type of disciplinary action, etc.), the same procedure is followed, where each category of the type disaggretator is used to generate a new column;
+        - After disaggregation, there should be no duplicate school IDs--check to be sure.
+    + Some datasets require merging or renaming of columns.
+* Change all the column names which are unique to the data file (i.e., column names which do not give name/ID for schools/districts) by appending the name of the data file--this allows for easily extracting column names in the fully merged dataset.
+* Set the rownames to the school IDs.
+* Each generated dataset is merged with the previous one, by row, so that each school has its data appended to its unique row.
+* In the end, some rows were generated which were fully or almost wholly empty; these were removed.
+* The final merged dataframe was saved to a csv file so the merging program does not have to be run every time R is restarted.
+
+The resultant data frame, by nature of construction, often has rows with many missing values. This is because schools have columns appended to them for which they lack data, or for which they are not meant to have data--for example, elementary schools lack data for any column pertaining to graduation and college attendance. While there may be some memory cost and redundancy involved with this, this is quite acceptable, given how easily accesible and manipulable the data become.
+
+```{r}
+full_data <- read.csv(paste0(filepath,"merge/full_merge.csv"),row.names=1,as.is=T)
+colnames(full_data) <- gsub("\\.","_",colnames(full_data))
+colnames(full_data) <- gsub("X","",colnames(full_data))
+dim(full_data)
+cat_pos <- which(colnames(full_data)=="Category")
+print("________")
+gsub("2013_14","",grepcol(full_data, "2013_14"))
+```
+There are a large number of schools in the useable sample (~1000). There are more columns than schools; however, many of these columns will never be used simultaneously, so in reality the number of schools will always well outdo the number of variables used for analysis.
+
+##Preliminary: Enrollment & Attendance
+What does total per-school enrollment look like across the school population?
+```{r,echo=T,include=T}
+print(low_enroll_sum <- sum(full_data$enroll_2013_14 < 100))
+if(low_enroll_sum) {
+    hist(full_data$enroll_2013_14[full_data$enroll_2013_14<100],col="cyan",main="Schools with enrollment<100",xlab="Enrollment")
+    sum(full_data$enroll_2013_14 < 100)/dim(full_data)[1]
+    full_data <- full_data[full_data$enroll_2013_14 >= 100,]
+    hist(full_data$enroll_2013_14,col="chartreuse3",main="Full enrollment in CT Schools, with exclusion",xlab="Enrollment")
+} else {hist(full_data$enroll_2013_14,col="blue",main="Full enrollment in CT Schools",xlab="Enrollment")}
+```
+
+In the raw datasets, there are schools with fewer than 100 students listed; by the time data were merged and rows with too many missing values are omitted, most of these disappear. The few that remain are removed, as it would be misleading to generate percentage statistics from such small schools (and anyway most of the data would be suppressed for privacy reasons).
+
+There are many different grade-level combinations hosted by different schools:
+```{r,echo=T,include=T}
+unique(full_data$gradelevels)
+```
+
+Let's bring this down to a workable size:
+```{r,echo=T,include=T}
+full_data$gradelevels <- gsub("Pre K_6|K_6|K_4|Pre K_5|Pre K_4|1_5|K_5|1_6","elem",full_data$gradelevels)
+full_data$gradelevels <- gsub("7_8|6_8|5_8","mid",full_data$gradelevels)
+full_data$gradelevels <- gsub("9_12","high",full_data$gradelevels)
+full_data$gradelevels <- gsub("Pre K_12|K_12","mixed",full_data$gradelevels)
+full_data$gradelevels <- gsub("Pre K_8|6_12|K_8|4_8|1_8|7_12|8_12","mixed",full_data$gradelevels)
+full_data$gradelevels[!grepl("elem|mid|high|full|mixed",full_data$gradelevels)] <- "partial"
+unique(full_data$gradelevels)
+```
+
+What are we left with?
+
+```{r,include=T}
+text(barplot(table(full_data$gradelevels),las=1,col=plotcols,main="Distribution of schools in data",ylab="Count",xlab="grade levels"),table(full_data$gradelevels)/2,table(full_data$gradelevels),col=rgb(t(255-col2rgb(plotcols))/255),cex=1.5)
+```
+
+##Absenteeism by school type: grade levels
+Given enrollment, what about absenteeism? Absenteeism would preferably be broken down by grade so that we could clearly see changes from one year to the next, and so that mixed schools did not confound results; but since there are many elementary, middle, and high schools, I think that this measure is reliable enough to examine.
+
+```{r,include=T}
+attach(full_data)
+
+y <- abs_2013_14
+x <- gradelevels
+myResPlots2(lm(y~x))
+
+detach(full_data)
+```
+
+These residuals can't pass as normally distributed. How about a log transformation?
+
+```{r,echo=T,include=T}
+y <- loga(y)
+myResPlots2(lm(y~x))
+```
+
+Much better: residuals are mostly normally distributed, and there is no evidence of heteroskedasticity. Moving on with group comparisons:
+
+```{r,echo=T,include=T}
+inds <- remna(list(x,y))
+means <- tapply(y[inds], x[inds], mean)
+sds <- tapply(y[inds], x[inds], sd)
+
+stripplot(y~x, jitter=.5, main = "Chronic absenteeism by school type",ylab="adjusted log % Chronically absent",col="green")
+
+print("sds")
+print(sds)
+boxplot(y~x,las=2,ylab="adjusted log % Chronically absent",main="Chronic absenteeism by school type, 2012-13 term",col=plotcols)
+points(means,col="cyan",pch=16)
+```
+######(on any plot where it appears, 'adjusted log'(v) = log(v+1)--this is useful for treating data which is lower-bounded at 0)
+
+There are a large number of schools in each category (from stripplot and earlier barplot), which allows us greater confidence in the results we get. The standard deviations of each group are all under a factor of 2 of each other, so we can assume equal variances between groups. Given the checks of normality and equal variance, we may conduct ANOVA:
+
+```{r,echo=T,include=T}
+print("- - - summary - - -")
+aov1 <- aov(y~x)
+
+print(Anova(aov1,type=3))
+
+print("-- -- -- -- -- -- -- -- --")
+(welch_test <- oneway.test(y~x))
+print("- - - /summary - - -")
+```
+With such a low p-value, there is no question that a significant difference exists in graduation rates between at least two of the groups in question. As to which ones,
+
+```{r,include=T}
+par(mar=c(5,6,4,2))
+tuk <- TukeyHSD(aov1,conf.level = .99)
+plot(tuk,las=1)
+```
+
+Since the 'partial' group is a random amalgamation of schools that didn't fit into the other categories, there is not much I look to glean from comparisons involving them. But it is interesting to note that high schools and mixed schools (many of which include the high school grade levels) have consistently higher absenteeism rates than schools with lower grade levels. A lot of research, and a very cursory observation of any high school, tells us that students become more disengaged from school as they age, so this result is not surprising (it is in fact a good sanity check on the data).
+
+##Course-taking
+There are a number of reasons why we might be interested to know what courses students have exposure to. The courses that students take in high school will be important for their graduation and college-related decisions, and for many it becomes immediately important for seeking employment. While the data available on course-taking here is available at the school level, it is not available at the student level, although this would provide much greater insight into how course-taking habits relate to graduation and future economic opportunity; this inadequate operationalization may lead to insignificant or odd results when fitting predictive models later.
+
+Course-taking was operationalized was as an average of the percentages of students in different grades taking courses in a select few subjects (English Language/Literature, Math, Science, History/Social Science, Language, Performance/Fine Arts). For each subject and year, there are two data points: the average of course-taking percentages in all the high-school grades (9-12), and the average of just grades 11 and 12.
+```{r,echo=T,include=T}
+df_ct <- full_data[,grepcol(full_data,paste0(paste0("_",ct_an,"_"),collapse="|"))]
+df_ct <- df_ct[,grepcol(df_ct,c("2013_14","full"))]
+pairsJDRS(df_ct,main="Course-taking % across high school (9-12)")
+
+df_ct <- full_data[,grepcol(full_data,paste0(paste0("_",ct_an,"_"),collapse="|"))]
+df_ct <- df_ct[,grepcol(df_ct,c("2013_14","half"))]
+pairsJDRS(df_ct,main="Course-taking % across Grades 11 & 12")
+```
+
+The correlations in this plot likely represent the requirements of schools and the state of CT in what students are taking; e.g., math and ELA are consistently required under state testing programs, so it is not surprising that they have the highest correlation (this is pure speculation). There are some variable which may be imperfectly multicollinear (e.g. language and science coursetaking). There are also some outliers which should be ignored when applying regressions.
+
+When considering graudation rates later I will stick to the measures of course-taking across only the upper grades of high school, as they focus on the students who are closest to graduating. But for now, as an exploratory approach we can look at the data aggregated across all grade levels.
+
+Are there differences in course-taking patterns across school types?
+```{r}
+attach(full_data)
+
+y <- loga(full_coursetake_Math_2013_14)
+x <- Category
+
+bc <- boxCox(lm(y~x -1), lambda = bc_lambda, interp=T, plotit=F)
+print(paste0("lambda: ",(lambda <- bc$x[which.max(bc$y)])))
+detach(full_data)
+y <- y^lambda
+
+inds <- remna(list(x,y))
+means <- tapply(y[inds], x[inds], mean)
+sds <- tapply(y[inds], x[inds], sd)
+
+```
+
+
+```{r,include=T}
+boxplot(y~x,las=2,ylab="Average % enrolled in subject, Box-Cox adjusted",main="Math enrollment reciprocated: mean(grades 11,12), 2013-14 term",col=plotcols)
+points(means,col="cyan",pch=16)
+print("sds")
+print(sds)
+```
+
+Keep in mind that charter schools, according to this plot, have higher rates of math class enrollment: the power suggested by the Box-Cox transformation was negative. There appears to be a trend, but be careful...
+
+```{r,echo=T,include=T}
+stripplot(y~x, jitter=.5,ylab="Average % enrolled in subject, Box-Cox adjusted",main="Math enrollment: mean(grades 11,12), 2013-14 term",col="green")
+```
+
+There are very few charter schools and endowed/incorporated schools with high-school grades in this dataset--I am not inclined to put much stock in their results without larger samples, so I will exclude them from any analysis limited to high school grade levels.
+
+```{r}
+full_data_noncharter <- full_data[!grepl("Charter|End_Inc",full_data$Category),]
+attach(full_data_noncharter)
+
+y <- half_coursetake_Math_2013_14
+x <- Category
+bc <- boxCox(lm(y~x -1), lambda = bc_lambda, interp=T, plotit=F)
+print(paste0("lambda: ",(lambda <- bc$x[which.max(bc$y)])))
+y <- y^lambda
+```
+
+```{r,echo=T,include=T}
+
+detach(full_data_noncharter)
+myResPlots2(lm(y ~ x))
+
+inds <- remna(list(x,y))
+means <- tapply(y[inds], x[inds], mean)
+sds <- tapply(y[inds], x[inds], sd)
+
+print("sds")
+print(sds)
+```
+
+The variances between groups are uneven, and the maximal variance unevenness is more than 2. The different vertical spans may be attributable to restriction in the data range--schools not in the public category are very underrepresented. At the ends the residual distribution departs from normality. We can conduct traditional ANOVA, but to supplement it let us also have Welch and Kruska-Wallis tests:
+
+```{r,echo=T,include=T}
+print("- - - summary - - -")
+aov1 <- aov(y~x)
+
+print(Anova(aov1,type=3))
+
+print("-- -- -- -- -- -- -- -- --")
+(welch_test <- oneway.test(y~x))
+print("- - - /summary - - -")
+
+print(kruskal.test(y ~ as.factor(x)))
+```
+
+All three results agree, though the normal ANOVA test yields a much higher p-value than the other tests. In any case, we expect that a difference in average math course-taking among 11th & 12th graders exists somewhere among the groups we have examined. For the sake of completeness,
+
+```{r,echo=T,include=T}
+par(mar=c(5,10,4,2))
+tuk <- TukeyHSD(aov1,conf.level = .99)
+plot(tuk,las=1)
+```
+
+Interestingly, everything here is either clearly insignificantly different, not different at all, or barely measurably different. Public & CTE schools appear to be the one pair that barely attains statistical significance.
+
+##Discipline
+One more thing to overview is disciplinary atmosphere. There is a fair deal of research to support the notion that 'school climate', which is a mix of the disciplinary policy enforced for and support offered to students, has impacts on student engagement and performance. It would be particularly interesting to have charter and nonpublic schools included in this analysis, as many critics of schools outside the traditional public sector are quick to assert (especially of charters) that these schools bolster their numbers by selecting students in a way that public schools cannot.
+
+```{r,echo=T,include=T}
+full_data_nonendinc <- full_data[!grepl("End_Inc",full_data$Category),]
+attach(full_data_nonendinc)
+y <- susp_2013_14_
+x <- Category
+detach(full_data_nonendinc)
+par(mfrow=c(2,3))
+xu <- unique(x)
+for (i in 1:length(xu)){
+    hist(y[x==xu[i]],main=xu[i],col=plotcols[i],xlab='Suspension rate (%)')
+}; hist(y,main="All",col='violet',xlab='Suspension rate (%)')
+dev.off()
+```
+
+```{r,include=T}
+bc <- boxCox(lm(y~x -1), lambda = bc_lambda, interp=T, plotit=F)
+print(paste0("lambda: ",(lambda <- bc$x[which.max(bc$y)])))
+
+print("mean comparison")
+print(tapply(y, x, summary))
+
+y <- y^lambda
+myResPlots2(lm(y ~ x))
+
+inds <- remna(list(x,y))
+means <- tapply(y[inds], x[inds], mean)
+sds <- tapply(y[inds], x[inds], sd)
+
+print("sds")
+print(sds)
+
+boxplot(y~x,las=2,ylab="Suspension rate, Box-Cox adjusted",main="Suspension rates reciprocated by sector, 2013-14 term",col=plotcols)
+points(means,col="cyan",pch=16)
+stripplot(y~x,jitter=.5,las=2,ylab="Suspension rate, Box-Cox adjusted",main="Suspension rates reciprocated by sector, 2013-14 term",col="green")
+```
+
+The model assumptions appear to be met (again, the differing vertical spreads might be due to small subsample sizes, though it is uncertain--Welch ANOVA is conducted just in case). By eye, there appears to be a trend--public schools seem to have lower suspension rates than the categories to the left. Let's test it:
+
+```{r,include=T}
+print("- - - summary - - -")
+aov1 <- aov(y~x)
+
+print(Anova(aov1,type=3))
+
+print("-- -- -- -- -- -- -- -- --")
+(welch_test <- oneway.test(y~x))
+print("- - - /summary - - -")
+
+par(mar=c(5,10,4,2))
+tuk <- TukeyHSD(aov1,conf.level = .95)
+plot(tuk,las=1)
+```
+
+At the 95% confidence level, we can say that charter schools and CTE schools have higher rates of suspension than public schools.
+
+Now there is a problem here--the anove analysis is secretly comparing apples to oranges. CTE schools really should not be compared with the entire sample of public schools, as they only operate at the high school level in this data sample, whereas public schools operate at all levels. Similarly, we have no elementary or mixed-level charters in the sample:
+
+```{r}
+attach(full_data_nonendinc)
+print("-- -- -- CTE grade levels -- -- --")
+unique(gradelevels[Category=="CTE"])
+
+print("-- -- -- Public grade levels -- -- --")
+unique(gradelevels[Category=="Public"])
+
+print("-- -- -- Charter grade levels -- -- --")
+unique(gradelevels[Category=="Charter"])
+detach(full_data_nonendinc)
+```
+Let's test only the difference in suspension rates between CTE, public, and charter schools at the matching levels:
+```{r,echo=T,include=T}
+full_data_high <- full_data[full_data$gradelevels=="high",]
+attach(full_data_high)
+y <- susp_2013_14_
+x <- Category
+detach(full_data_high)
+
+lp <- c(7.5,1500,10,1000)
+tp <- c(5,700,6.5,1000,5,550,7,1000)
+
+print(tapply(y, x, summary))
+bootperm(x,y,"Public","CTE",lp,tp,"suspension")
+```
+
+We fail to reject null difference between suspension rates of Public/CTE schools--so we cannot conclude that they are in fact statistically distinguishable. Were there more CTE schools in the sample, the difference may have been rendered significant.
+
+```{r}
+full_data_hmm <- full_data[grepl("high|mixed|mid",full_data$gradelevels),]
+attach(full_data_hmm)
+y <- susp_2013_14_
+x <- Category
+detach(full_data_hmm)
+
+lp <- c(-15,1500,-15,1500)
+tp <- c(8,700,4.5,950,5,1000,6.1,2000)
+
+print(tapply(y, x, summary))
+bootperm(x,y,"Charter","CTE",lp,tp,"suspension")
+```
+
+```{r,echo=T,include=T}
+attach(full_data_hmm)
+y <- susp_2013_14_
+x <- Category
+detach(full_data_hmm)
+
+lp <- c(9.5,800,12,1500)
+tp <- c(.5,1000,7.5,1500,.5,1000,7.5,1500)
+
+print(tapply(y, x, summary))
+bootperm(x,y,"Public","Charter",lp,tp,"suspension")
+```
+
+Once again, sample size seems to be an issue and the source of distribution oddities (in particular the bootstrapped medians). The differences are not statistically significant under the bootstrap or permutation tests; given a larger sample, such differences would likely be significant.
+
+#Graduation rates
+
+##Overview
+I was looking for a large number of high schools in the overall sample, so that I could analyze graduation rates. Although high schools are not as represented as elementary schools in the sample, there are still 170+ of them, which is plenty (mind that some schools in the "mixed" category also include the high school grade ranges).
+
+Let's start by examining graduation rates at the school level across all of CT for the past 5 years:
+```{r}
+max_vals <- c()
+aval <- .1
+par(lwd=3)
+cols <- c("blue","green","yellow","orange","red")
+ys <- paste0("201",2:6)
+ys2 <- paste0("1",3:7)
+yst <- paste0(ys,"-",ys2)
+```
+
+```{r,echo=T,include=T}
+attach(full_data)
+hist(grad_2012_13,border="blue",col=alpha("blue", aval),xlab="4-year graduation rate",main="Graduation rates, 2012-17",ylim=c(0,132))
+for(i in 2:5){
+    print(paste0("grad_",ys[i],ys2[i]))
+    max_vals[i-1] <- max(hist(full_data[,paste0("grad_",ys[i],"_",ys2[i])],border=cols[i],col=alpha(cols[i-2], aval),add=T,lty=i)$counts)
+}    
+legend(20,132,yst,fill=alpha(cols, aval),border=cols,col=cols,lty=1:5)
+
+detach(full_data)
+```
+
+The blue bin on the right (2012-13) seems to be substantially lower than those for later years. Have graduation rates across CT changed over time, at the school level? 
+
+```{r,include=T}
+attach(full_data)
+samples <- 10000
+inds <- remna(list(grad_2016_17,grad_2012_13))
+indsum <- sum(inds)
+g1617 <- grad_2016_17[inds]
+g1213 <- grad_2012_13[inds]
+res <- rep(NA, samples)
+for(i in 1:samples){
+    s1617 <- sample(g1617, indsum , replace = T)
+    s1213 <- sample(g1213, indsum , replace = T)
+    res[i] <- mean(s1617) - mean(s1213)
+}
+detach(full_data)
+
+print(paste("observed mean:",(graddif <- mean(g1617)-mean(g1213))))
+print(paste("bootstrapped confint:",paste((boot_confint <- quantile(res, c(0.025, 0.975))),collapse="  ")))
+print(paste("bootstrapped confint:",paste((boot_confint_99 <- quantile(res, c(0.005, 0.995))),collapse="  ")))
+#I like R's ridiculous but useful syntax
+
+print("t-test")
+print(ttestres <- t.test(g1617 , g1213))
+print("t-test conf.int")
+print(ttestres$conf.int)
+
+
+span <- 1.05*max(graddif - min(c(res,ttestres$conf.int,boot_confint)), max(c(res,ttestres$conf.int,boot_confint)) - graddif)
+hist(res, col="darkblue", main = "Bootstrapped Sample Means Diff in graduation rates: 2012-13/2013-14", xlab = "dif(% grad rate)", breaks=20, xlim=graddif+c(-span,span))
+abline(v=ttestres$conf.int,lwd=3, col="red")
+abline(v=boot_confint,lwd=3, col="green", lty = 2)
+abline(v=boot_confint_99,lwd=3, col="cyan", lty = 2)
+legend(6,1000, c("Boot CI","Original CI"), lwd=3, col = c("green","red"), lty = c(2,1))
+```
+
+At a confidence level of 95% (and barely at), we can reject the null hypothesis that graduation rates across CT schools were equal last year to those from five years ago. But when did this change occur--gradually, or in a leap early on? Let's try another visualization:
+
+```{r,include=T}
+grad_dat <- full_data[,grepcol(full_data,"grad_")]
+# grad_m <- melt(grad_dat)
+# grad_t <- pairwise.t.test(grad_m$value, grad_m$variable, p.adjust = "none")
+# grad_t
+par(mfrow=c(2,5),mar=c(2,1.8,2,.2)) #2,1,1,1 #2,1,2,1
+tcols <- cols
+tcols[3] <- "yellow2"
+t_op <- "l"
+for(i in 1:5){
+    for (j in 1:5){
+        
+        gi <- grad_dat[,i]
+        gj <- grad_dat[,j]
+        if (i<j) {
+            # x1 <- jitter(rep(0,length(gi)),amount=.25)
+            # x2 <- jitter(rep(1,length(gj)),amount=.25)
+            # x <- c(x1,x2)
+            y <- c(gi,gj)
+            # plot(x,y,labels=c(yst[i],yst[j]),at=c(.1,50))
+            boxplot(gi,gj,names=yst[c(i,j)],varwidth=T,boxwex=.6,lwd=1,boxlwd=2,col=cols[c(i,j)])
+            if(t.test(gi,gj,t_op)$p.value <= .05) {
+                text(1.5,40,paste0("p=",round(t.test(gi,gj,t_op)$p.value,3)),col=tcols[i],cex=2)
+                text(1.5,35,"_______",col=tcols[j],cex=2)
+            }
+            else {text(1.5,40,paste0("p=",round(t.test(gi,gj,t_op)$p.value,3)))}
+
+            #text(.9,50,)
+        }
+        #else if (i>j){text(1,1,t.test(gi,gj)$p) }
+        #else {hist(gi)}
+        
+    }
+}
+mtext("t-tests of graduation rates by year", outer = TRUE, cex = 1.3, line=-1.5)
+
+
+```
+
+There is evidence to assert a difference between the 2012-13 term and the years from 2014 forward, though not for the other comparisons. Thus it appears that most of the graduation rate increase between five years ago and last year happened between five and three years ago; there has been little change since then.
+
+
+Let's look at graduation rates between school catagories:
+
+```{r,include=T}
+attach(full_data_noncharter)
+y <- grad_2013_14
+x <- Category
+detach(full_data_noncharter)
+
+dim(full_data)-dim(full_data_noncharter)
+inds <- remna(list(x,y))
+means <- tapply(y[inds], x[inds], mean)
+sds <- tapply(y[inds], x[inds], sd)
+boxplot(y~x,las=2,ylab="4-yr graduation rate",main="Graduation rates by school type, 2012-13 term",col=plotcols)
+points(means,col="cyan",pch=16)
+print("_____________________________")
+print("means")
+print(means)
+print("sds")
+print(sds)
+
+```
+
+```{r,echo=T,include=T}
+myResPlots2(aov(y~x))
+```
+
+That is not going to work--there is too much deviation from normality, and many extreme residuals. Let's try a Box-Cox transformation:
+
+```{r,echo=T,include=T}
+bc <- boxCox(lm(y~x -1), lambda = bc_lambda, interp=T, plotit=F)
+print(paste0("lambda: ",(lambda <- bc$x[which.max(bc$y)])))
+```
+Wow.
+
+```{r,echo=T,include=T}
+print(paste0("- - - summary: ^",round(lambda,1)," - - -"))
+
+y <- full_data_noncharter$grad_2013_14^lambda
+aov1 <- aov(y~x)
+myResPlots2(aov1)
+print(Anova(aov1,type=3))
+print("-- -- -- -- -- -- -- -- --")
+(welch_test <- oneway.test(y~x))
+print("- - - /summary - - -")
+```
+
+Minding the enormous units, this model feedback looks much better--good normal conformity, and the studentized residuals are not as extreme as before.
+
+Which groups have significant differences in graduation rates?
+
+```{r, echo=T, include=T}
+tuk <- TukeyHSD(aov1)
+par(mar=c(5,10,4,2))
+plot(tuk,las=1)
+```
+
+Public schools are reported to be distinct from career and technical schools and regional schools (they have statistically distinguishable graduation rates); regional schools are also distinct from CTE schools. The regional-public relation approaches somewhat close to the 0 line--let's do a more thorough analysis for this case by bootstrapping the mean difference and permuting the samples:
+
+```{r}
+lp <- c(5e14,900,0e14,1500)
+tp <- c(-.2e15, 650,-1.5e15,1150,.2e15, 1350,-2e15,2050)
+bootperm(x,y,"Public","Regional",lp,tp,"graduation",sci=T)
+```
+
+Contrary to my expectations, the results from before are confirmed (though marginally at alpha=.05) from the second permutation test): for the means, the bootstrapped confidence interval and t-test interval align rather closely, and both are well-contained within the negative range; likewise for medians, we have evidence to declare different graduation rates for regional and public schools.
+
+##Predicting graduation rates
+We could do more comparisons between school categories on individual characteristics and then compare to see how they related to school graduation rates, but this would be a long and tedious procedure, and not the most informative. Plus, there is the issue of low subsample sizes for certain school types, so the comparisons will be incomplete. Let's try to fit models that predict graduation rates. We will work with a few key variables--enrollment, coursetaking in grades 11/12, suspension rate, chronic absenteeism, and spending on instructional and support services. Recall the caveats associated with these variables:
+* Spending is an average at the district level, so it is not expected to be a very accurate representation of individual school conditions;
+* Course taking is averaged over grade levels (not too much of a problem) and taken at the school level (the bigger problem). A better way to assess the effect of course taking on graduation would be to have data at the student level and then conduct some kind of logistic regression to determine the increase in probability of graduation given an increase in the number of courses taken in particular subejcts or the number of years of particular subjects taken. This information is not presently availalble, so we settle with what we have--though it might not be very revealing.
+* Absenteeism is provided across the whole school, not across individual grades, and (most importantly) not at the student level. This, again, would be preferable, but is unavailable.
+
+Let us proceed:
+
+```{r,echo=T,include=T}
+grad_predict(full_data,"2013_14","r",opt="half")
+```
+
+Model assumptions appear to be met, though there does appear to be evidence of heteroskedasticity (mostly removed by the Box-Cox trasnformation). Let’s take the results one at a time.
+
+Suspension rate, rate of chronic absenteeism, and language course taking emerged as significant predictors of the graduation rate; mathematics course taking is marginally significant (p<0.1). The coefficients on suspension and absenteeism are negative, which makes sense: increases in absenteeism and suspension are expected to correspond with decreases in the graduation rate (associatively, if not causally). A 1% increase in suspension rate (absenteeism rate) is predicted to correspond to a 0.29% (.41%) decrease in graduation rate.
+
+The coefficients on course taking are harder to interpret—not mathematically, but in terms of what practical implications the may have, if any. Does taking more language courses lead to a higher chance of graduation, but not taking more courses in ELA or Math? We may conclude nothing of the sort from this analysis: we can only say that in this sample, language course taking was a significant predictor of graduation rate. This may well be because language course taking is related to something else which has causal effect on graduation, or to something of which language course taking and graduation are concomitant effects.
+
+Of course, it is also possible that the analysis here captures some part of a causal effect of course taking on graduation rate—but this effect is so laden with potential confounders that a solid conclusion is not attainable. And it is also strange that only language course taking arises as a significant predictor, and none of the (other) four core subjects (if language is considered a core subject in these schools). This may be an issue with multicollinearity in the data.
+
+The results for the model with graduation rate adjusted by the Box-Cox procedure (lambda ~ 5) is much the same, save that the p-values diminish, and so math course taking becomes a significant (p=.011).
+
+Using the regsubsets function, every possible combination of variables is now fit as a model.
+
+```{r,echo=T,include=T}
+modfits(grad_susp)
+```
+
+The r^2^ criterion is not useful for evaluating model goodness of fit, as it merely includes every variable. The adjusted r^2^ value isolates five predictors: the four which were discussed above (which are all significant in this model at alpha=.05), and district-level per-pupil spending on administration/support services ('suppsum', ns, beta ~ .001). The fact that the four predictive variables are now all significant under no power transformation suggests that there was some multicollinearity in the full dataset.
+
+The BIC and CP statistics both isolate the same tripartite model: suspension rate and absenteeism rate (p<.0005), and suppsum (which is now highly insignificant at p=0.46). This is probably the most believable result here. The respective coefficients on suspension and absenteeism are now -.39 and -.40.
+
+```{r}
+# In what follows, I run the same analysis with one difference: in lieu of suspension rate, I use normalized suspension counts for in-school and out-of school suspensions. There is no theoretical motivation for this--just my own curiosity.
+
+# grad_predict(full_data,"2013_14","c",opt="half")
+# print("* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *")
+# print("* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *")
+# modfits(grad_susp)
+
+
+# Evidently some of the variables in this dataset are interacting with each other in some odd ways—math is now a highly significant predictor, and enrollment sits on the border of significance. The CP-selected model is the most efficient: it contains only four predictors—absenteeism, normalized OSS counts, and math & language course taking—all highly significant. The BIC- and adjusted r^2^-preferred models both contain the same predictors: the four from the CP model, and enrollment (ns, p=.187).
+# 
+# In any case, as mentioned, there is no reason to prefer normalized suspension counts over the proper suspension rate, and the residual standard error on the CP suspension-count model (5.225) is not that much lower than on the BIC/CP suspension rate model (5.594), so the simpler model (and the more believable model) is preferred.
+# 
+# 
+```
+
+It is possible that some of the variables in this dataset have interaction effects with each other. Out of curiosity, let's see if the variables other than course taking have interaction effects with school size.
+
+```{r,echo=T,include=T}
+grad_predict(full_data,"2013_14","r",opt="half",A=T,pl=F)
+```
+Interestingly, while one interaction term ('susp:enroll') is marginally significant in the model without transformation, this term loses its significance under the Box-Cox suggestion. In any case, this would suggest that as enrollment increases, the slope on grad~susp decreases.
+
+
+#Wrap-up
+
+We have seen so far:
+
+* High schools have the highest rates of absenteeism, statistically distinguishably from elementary and middle schools
+* Suspension rates within schools cannot be distinguished currently, as certain cateogry groups are highly underrepresented
+* Graduation rates have increased over the past 5 years, but this change happened between 3-5 years ago
+* There appears to be systematic differences in graduation rates, with CTE schools having higher rates than public schools
+* Limited subsamples and inadequate operationalizations cause problems with trying to fit a predictive model for graduation rates. The only model that I could make sense of is the model that made sense already--graduation rates appear to be predicted negatively by suspension and absenteeism rates.
+
+There are more variables on the student level that would be preferable to have, such as course-taking habits and disciplinary data. For starters, it would also be nice if per-pupil expenditure data were available at the school level. Perhaps these can be acquired at some point.
+
+
+## _Fin_.

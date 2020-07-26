@@ -1,0 +1,303 @@
+---
+title: "230 Final Project — functions"
+output: html_document
+---
+
+```{r,message=FALSE,echo=FALSE,include=FALSE}
+library(stringr)
+library(plyr)
+library(car)
+library(tools)
+library(lubridate)
+library(corrplot)
+library(leaps)
+library(lattice)
+library(rvest)
+library(scales)
+library(plotrix)
+library(dplyr)
+library(tidyverse)
+library(tidyselect)
+library(questionr)
+library(reshape2)
+library(RColorBrewer)
+
+filepath="/Users/HomeFolder/Documents/Documents/D-Y--D-S/Courses/S&DS/230/Final Project/data/"
+source("http://www.reuningscherer.net/s&ds230/Rfuncs/regJDRS.txt")
+
+ct_an <- c("Lit","Sci","Math","Hist_soc","Lang","Art")
+
+plotcols <- c("red","orange","yellow","chartreuse4","blue","violet")
+bc_lambda <- seq(-10, 10, 1/10)
+```
+
+
+```{r, warning=F}
+df_union <- function(df){
+    cols <- dim(df)[2]
+    #print(paste("cols",cols))
+    r <- union(df[,1],df[,2])
+    if(cols>2){for(i in 3:cols){
+        #print(i)
+        r <- union(df[,i],r)
+    }}
+   # print(r)
+    return(r)
+}
+```
+
+
+```{r}
+
+grepcol <- function(df, expr){
+    if(length(expr)==1) {return (colnames(df)[grepl(expr,colnames(df))])}
+    else {
+        n <- colnames(df)
+        for (e in expr) n <- n[grepl(e,n)]
+        return(n)
+    }
+}
+
+corna <- function(x,y){
+    ind <- which(!(is.na(x) | is.na(y)))
+    return(cor(x[ind],y[ind]))
+}
+
+remna <- function(args){
+    blist <- rep(1,length(args[[1]]))
+    #print(blist)
+    for (i in 1:length(args)){
+        #print((args[[i]])[!is.na(args[[i]])])
+        blist <- blist * (!is.na(args[[i]]))
+    }
+    # for (i in 1:length(args)){
+    #     print((args[[i]])[as.logical(blist)])
+    # }
+    return(as.logical(blist))
+}
+
+log10a <- function(v){
+    return(log10(1+as.numeric(v)))
+}
+
+loga <- function(v,b=0){
+    if(!b) return(log(1+as.numeric(v))) else return(log(1+as.numeric(v), base=b));
+    
+}
+
+invlog10a <- function(v){
+    return(10^v-1)
+}
+
+nonna <- function(data){
+    return(data[!is.na(data)])
+}
+
+minna <- function(vec){
+    return(min(nonna(vec)))
+}
+
+maxna <- function(vec){
+    return(max(nonna(vec)))
+}
+
+scinot <- function(n, d=2){
+    return(formatC(n, format = "e", digits = d))
+}
+```
+
+```{r}
+model_eval <- function(mod_sum, data, param, scale) {
+  if (scale == "bic") {
+    condition <- mod_sum$which[which.min(param),]
+    print(paste0("optimal bic ",min(param)))
+  } else if (scale == "cp") {
+    condition <- mod_sum$which[min(c(1:length(param))[param < c(1:length(param))+1]),]
+  }
+  else {
+    condition <- mod_sum$which[which.max(param),]
+  }
+  mod_names <- names(data)[condition][-1]
+  print(mod_names)
+  print(paste(length(mod_names),"predictors in model"))
+  datatemp <- data[, condition]
+  return(datatemp)
+}
+
+```
+
+```{r}
+grad_disp <- function(data,yearstring,plotval=T,suspmode="r",option="full"){
+    dfy <- data[,grepcol(data,yearstring)]
+    #print("test print")
+    #print(colnames(dfy)[colnames(dfy) %in% c(paste0("susp_",yearstring,"_"),paste0(c("grad","abs","enroll",paste0(option,"_","coursetake_",c("Lit","Sci","Math","Hist_soc","Lang","Art"))),"_",yearstring))])
+    if(suspmode=="r") {dfy_part <- dfy[,c(paste0("susp_",yearstring,"_"),paste0(c("grad","abs","enroll",paste0(option,"_","coursetake_",c("Lit","Sci","Math","Hist_soc","Lang","Art"))),"_",yearstring))]}
+    else if(suspmode=="c") {dfy_part <- dfy[,paste0(c("grad","abs","enroll","ISS","OSS",paste0(option,"_","coursetake_",c("Lit","Sci","Math","Hist_soc","Lang","Art"))),"_",yearstring)]}
+    else if(suspmode=="f") {dfy_part <- dfy[,c(paste0("susp_",yearstring,"_"),paste0(c("grad","abs","enroll","ISS","OSS",paste0(option,"_","coursetake_",c("Lit","Sci","Math","Hist_soc","Lang","Art"))),"_",yearstring))]}
+    
+    #print("dim")
+    #print(dim(dfy_part))
+    #print(grepcol(data,"dist_perpupil_staffserv_"))
+    dfy_part[,paste0("spend_sum_",yearstring)] <- as.numeric(data[,paste0("dist_perpupil_staffserv_",yearstring)])+as.numeric(data[,paste0("dist_perpupil_supplequip_",yearstring)])+as.numeric(data[,paste0("dist_perpupil_mediaserv_",yearstring)])
+    
+    dfy_part[,paste0("supp_sum_",yearstring)] <- as.numeric(data[,paste0("dist_perpupil_adminserv_",yearstring)])+as.numeric(data[,paste0("dist_perpupil_suppserv_",yearstring)])
+    
+    colnames(dfy_part) <- gsub(paste0("dist_perpupil_|",yearstring,"|_|","coursetake|full|half"),"",colnames(dfy_part))
+    #print("Another test print")
+    #print(dfy_part$Art)
+    
+    dfy_part$Art[dfy_part$Art > 30] <- NA
+    dfy_part$Lang [dfy_part$Lang > 16] <- NA
+    dfy_part$Sci [(dfy_part$Sci > 35) | (dfy_part$Sci < 5)] <- NA
+    dfy_part$Lit[dfy_part$Lit > 35] <- NA
+    
+    dfy_part <- dfy_part[((dfy_part$suppsum<10000) & !is.na(dfy_part$suppsum)),]
+    if(suspmode=="c"){
+        OSS <- dfy_part[,"OSS"]
+        dfy_part <- dfy_part[!is.na(OSS) & (OSS < 2),]
+    }
+    
+    if(plotval){
+        # grad_cor <- cor(dfy_part,use="pairwise.complete.obs")
+        # sigcorr <- cor.mtest(dfy_part, conf.level = .95)
+        # corrplot.mixed(grad_cor, lower.col="black", upper = "ellipse", tl.col = "black", number.cex=.7, order = "hclust", tl.pos = "lt", tl.cex=.7, p.mat =sigcorr$p, sig.level = .05)
+        pairsJDRS(dfy_part)
+        # if(suspmode=="r"){title(xlab="it's a good thing there aren't a lot of boxes here...",line=4) ; title(ylab="good thing there aren't many boxes here either...")}
+        # else if(suspmode=="c"){title(ylab="good thing there aren't many boxes here either...")}
+        #hist(dfy_part$suppsum,col="pink")
+    }
+    return(dfy_part)
+}
+```
+
+```{r}
+grad_predict <- function(dataset,yearstring,mode,pl=T,opt="full",A=F,mbc=T){
+    print("_________________________________________________________________________")
+    print("_________________________________________________________________________")
+    print(paste0("______________________________Summary, mode=",mode,"____________________________"))
+    print("_________________________________________________________________________")
+    print("_________________________________________________________________________")
+    if(A) {grad_susp <<- grad_disp(dataset,yearstring, suspmode = "r", plotval = pl, option=opt)}
+    else {grad_susp <<- grad_disp(dataset,yearstring, suspmode = mode, plotval = pl, option=opt)}
+
+    if(A) {m1 <- glm(grad ~ abs + susp + enroll + Lit + Sci + Math + Histsoc + Lang + Art + spendsum + suppsum + enroll*susp + enroll*spendsum + enroll*suppsum + enroll*abs, data=grad_susp)}
+    else {m1 <- lm(grad~., data=grad_susp)}
+    bc <- boxCox(m1, plotit = F, lambda = bc_lambda)
+    (lambda <- bc$x[which.max(bc$y)])
+    if(A & mbc) {m4 <- glm(grad^lambda ~ abs + susp + enroll + Lit + Sci + Math + Histsoc + Lang + Art + spendsum + suppsum + enroll*susp + enroll*spendsum + enroll*suppsum + enroll*abs, data=grad_susp)}
+    else if(mbc) {m4 <- lm((grad^lambda)~., data=grad_susp)}
+    
+    print("- - - - Summary for ^1 - - - -")
+    if(pl) myResPlots2(m1);
+    print(Anova(m1,type=3))
+    print(summary(m1))
+    if(mbc){
+        print(paste0("- - - - Summary for ^",round(lambda,1)," - - - -"))
+        if(pl) myResPlots2(m4);
+        print(Anova(m4,type=3))
+        print(summary(m4))
+    }
+}
+```
+
+```{r}
+modfits <- function(grad_susp_dataset){
+    rss_mod <- regsubsets(grad ~ ., data = grad_susp_dataset, nvmax=13)
+    rss_sum <- summary(rss_mod)
+    #rss_sum$which
+    
+    print("r2 results")
+    rss_r2_fit <- model_eval(rss_sum,grad_susp_dataset,rss_sum$rsq, "r2")
+    print(summary(lm(grad ~ ., data = rss_r2_fit)))
+    
+    print("+ + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + +")
+    print("adjr2 results")
+    rss_adjr2_fit <- model_eval(rss_sum,grad_susp_dataset,rss_sum$adjr2, "adjr2")
+    print(summary(lm(grad ~ ., data = rss_adjr2_fit)))
+    
+    print("+ + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + +")
+    print("bic results")
+    rss_bic_fit <- model_eval(rss_sum,grad_susp_dataset,rss_sum$bic, "bic")
+    print(summary(lm(grad ~ ., data = rss_bic_fit)))
+    
+    print("+ + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + +")
+    print("cp results")
+    rss_cp_fit <- model_eval(rss_sum,grad_susp_dataset,rss_sum$cp, "cp")
+    print(summary(lm(grad ~ ., data = rss_cp_fit)))
+}
+
+```
+
+```{r}
+bootperm <- function(x,y,c1,c2,lp,tp,label,samples=10000,sci=F){
+    if(sci){pf <- scinot}
+    else {pf <- function(input){return(input)}}
+    
+    inds <- remna(list(y,x))
+    g1314 <- y[inds]
+    cattemp <- x[inds]
+    g1314 <- g1314[(cattemp==c1) | (cattemp==c2)]
+    cattemp <- cattemp[(cattemp==c1) | (cattemp==c2)]
+    res_avg <- rep(NA, samples)
+    res_med <- rep(NA, samples)
+    g1314P <- g1314[cattemp == c1]    ;   Psum <- sum(cattemp == c1)
+    g1314CTE <- g1314[cattemp == c2]     ;   CTEsum <- sum(cattemp == c2)
+    for(i in 1:samples){
+        sP <- sample(g1314P, Psum , replace = T)
+        sCTE <- sample(g1314CTE, CTEsum , replace = T)
+        res_avg[i] <- mean(sCTE) - mean(sP)
+        res_med[i] <- median(sCTE) - median(sP)
+    }
+    
+    print(paste("observed mean:",(dif <- mean(g1314CTE)-mean(g1314P))))
+    print(paste("bootstrapped confint on mean diff:",paste(pf(boot_confint_95 <- quantile(res_avg, c(0.025, 0.975))),collapse="  ")))
+    print(paste("bootstrapped confint on mean diff:",paste(pf(boot_confint_99 <- quantile(res_avg, c(0.005, 0.995))),collapse="  ")))
+    #Again liking the syntax
+    
+    
+    print("t-test")
+    print(ttestres <- t.test(g1314 ~ cattemp))
+    print("t-test conf.int")
+    print(ttestres$conf.int)
+    
+    
+    #span <- 1.05*max(dif - min(c(res_avg,ttestres$conf.int,boot_confint)), max(c(res_avg,ttestres$conf.int,boot_confint)) - dif)
+    hist(res_avg, col="darkblue", main = paste0("Bootstrapped Sample Means Diff in ",label," rates: ",c1,"/",c2," Schools"), xlab = "dif(% susp rate)", breaks=20)#, xlim=dif+c(-span,span)
+    abline(v=ttestres$conf.int,lwd=3, col="red")
+    abline(v=boot_confint_95,lwd=3, col="green", lty = 2)
+    abline(v=boot_confint_99,lwd=3, col="cyan", lty = 2)
+    legend(lp[1],lp[2], c("Boot CI (.99)","Boot CI (.95)","t-test CI"), lwd=3, col = c("cyan","green","red"), lty = c(2,2,1))
+    
+    
+    ##PERMUTATION TEST
+    permdif_avg <- rep(NA,samples)
+    permdif_med <- rep(NA,samples)
+    for (i in 1:samples) {
+      catfalse <- sample(cattemp)
+      permdif_avg[i] <- mean(g1314[catfalse == c2]) -  mean(g1314[catfalse == c1])
+      permdif_med[i] <- median(g1314[catfalse == c2]) -  median(g1314[catfalse == c1])
+    }
+    hist(permdif_avg, col = "yellow", main = paste0("Permuted Sample Means Diff in ",label," rates"), xlab = "dif(% susp rate)", breaks = 20)#, xlim = c(-4,3)
+    abline(v = dif, col="blue", lwd=3)
+    text(dif+tp[1], tp[2] ,paste("Actual Diff in Medians =", dif),srt = 90)#round(dif,2)
+    text(tp[3], tp[4],paste0("p-value=",mean(abs(permdif_avg) >= dif)))
+    print(paste0("p-value=",mean(abs(permdif_avg) >= dif)))
+    
+    
+    print(paste("observed median:",(dif <- median(g1314CTE)-median(g1314P))))
+    print(paste("bootstrapped confint on median diff (.95):",paste(pf(boot_confint_95 <- quantile(res_med, c(0.025, 0.975))),collapse="  ")))
+    print(paste("bootstrapped confint on median diff (.99):",paste(pf(boot_confint_99 <- quantile(res_med, c(0.005, 0.995))),collapse="  ")))
+    hist(res_med, col="darkblue", main = paste0("Bootstrapped Sample Medians Diff in ",label," rates: ",c1,"/",c2," Schools"), xlab = "dif(% susp rate)", breaks=20)#, xlim=dif+c(-span,span)
+    abline(v=boot_confint_95,lwd=3, col="green", lty = 2)
+    abline(v=boot_confint_99,lwd=3, col="cyan", lty = 2)
+    legend(lp[3],lp[4], c("Boot CI (.99)","Boot CI (.95)"), lwd=3, col = c("cyan","green"), lty = c(2,2))
+    
+    hist(permdif_med, col = "yellow", main = paste0("Permuted Sample Medians Diff in ",label," rates"), xlab = "dif(% susp rate)", breaks = 20)#, xlim = c(-4,3)
+    abline(v = dif, col="blue", lwd=3)
+    text(dif+tp[5], tp[6], paste("Actual Diff in Medians =", pf(dif)),srt = 90)#round(dif,2)
+    text(tp[7], tp[8], paste0("p-value=",mean(abs(permdif_med) >= dif)))
+    print(paste0("p-value=",mean(abs(permdif_med) >= dif)))
+}
+
+```
+

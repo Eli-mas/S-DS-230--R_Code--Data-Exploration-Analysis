@@ -1,0 +1,676 @@
+---
+title: "230 Final Project -- data processing"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r child = '230 Final Project -- functions.Rmd'}
+```
+
+
+```{r}
+files <- c(list.files("/Users/HomeFolder/Documents/Documents/D-Y--D-S/Courses/S&DS/230/Final Project/data"))
+files <- files[grepl('\\.csv',files)]
+print(files)
+print(paste(length(files)," .csv files located"))
+```
+
+
+
+
+```{r,echo=FALSE,include=F}
+get_field_row <- function(rawData, k1="School", k2="Code"){
+    for(i in 1:dim(rawData)[1]){
+        rowdata <- rawData[i,]
+        if(sum(grepl(k1 , rawData[i,])) & sum(grepl(k2 , rawData[i,]))){
+            field_row <- i
+            break
+        }
+    }
+    return(field_row)
+}
+
+init_process <- function(rawData){
+    field_row <- get_field_row(rawData);
+    colnames(rawData) <- rawData[field_row,]
+    school_code_index <- which(grepl("School" , rawData[field_row,]) & grepl("Code" , rawData[field_row,]))
+    omit <- is.na(as.numeric(str_extract(rawData[,school_code_index],"[[:digit:]]+")==""))
+    rawData <- rawData[!omit,]
+    row.names(rawData) <- str_extract(rawData[,school_code_index],"[[:digit:]]+")
+    return(rawData)
+}
+
+id_process <- function(s){
+    rawData <- read.csv(paste0(filepath,s),header=F,as.is=T)
+    field_row <- get_field_row(rawData)
+    rawData <- init_process(rawData)
+    rawData <- rawData[(field_row+1):dim(rawData)[1],which((colnames(rawData) %in% c("District Code", "District", "District Name", "School", "School Name")))]
+    district_code_index <- which(grepl("School" , rawData[field_row,]) & grepl("Code" , rawData[field_row,]))
+    rawData[,district_code_index] <- str_extract(rawData[,district_code_index],"[[:digit:]]+")
+    rawData[,grepl("=",rawData)] <- gsub("=","",rawData[,grepl("=",rawData)])
+    return(rawData)
+}
+
+data_read_new <- function(s,descriptor,TESTPRINT=0){
+    rawData <- read.csv(paste0(filepath,s),header=F,as.is=T)
+    field_row <- get_field_row(rawData)
+    school_code_index <- which(grepl("School" , rawData[field_row,]) & grepl("Code" , rawData[field_row,]))
+    if(TESTPRINT){
+        print("MISSING SCHOOL ID:")
+        print(which(rawData[,school_code_index]==""))
+        #print(rawData[which(rawData[,school_code_index]==""),])
+    }
+    grade_bool <- ("Grade" %in% rawData[field_row,])
+    subject_bool <- ("Subject" %in% rawData[field_row,])
+    tag_row_ind <- which(("District"==rawData[,1]) | ("District Code"==rawData[,1]) | ("District Name"==rawData[,1]))-1
+    tag <- which(rawData[tag_row_ind,]!="")
+    
+    if(length(tag)==1)
+    {
+        rawData[field_row,((school_code_index+1):length(rawData[field_row,]))] <-paste0(descriptor,"_",rawData[field_row,((school_code_index+1):length(rawData[field_row,]))])
+    }
+    else
+    {
+        tag_names <- rawData[tag_row_ind,tag]
+        tag_span <- tag[2]-tag[1]
+        #if(TESTPRINT) {print("tag_row_ind"); print(tag_row_ind); print(paste("tag names: span =",tag_span)); print(tag_names)}
+        for(j in 1:length(tag)){
+          i <- tag[j]
+          # print(paste("tag:",i,"tag name:",tag_names[j]))
+          # print(rawData[field_row,(i:(i+tag_span-1))])
+          rawData[field_row,(i:(i+tag_span-1))] <- paste0(tag_names[j],rawData[field_row,(i:(i+tag_span-1))])
+          # print(paste0(tag_names[j],rawData[field_row,(i:(i+tag_span-1))]))
+          # print(rawData[field_row,(i:(i+tag_span-1))])
+        }
+
+        #if(TESTPRINT) print(rawData[field_row,((school_code_index+1):length(rawData[field_row,]))]);
+        rawData[field_row,((school_code_index+1):length(rawData[field_row,]))] <- paste0(descriptor,"_",rawData[field_row,((school_code_index+1):length(rawData[field_row,]))])
+    }
+   
+    colnames(rawData) <- rawData[field_row,]
+    rawData <- rawData[(field_row+1):dim(rawData)[1],which(!(colnames(rawData) %in% c("District Code", "District", "District Name", "School", "School Name")))]
+    dataframes <- list()
+    #new_school_code_index <- which(grepl("School" , rawData[field_row,]) & grepl("Code" , rawData[field_row,]))
+    if(sum(grepl("Type",colnames(rawData)))){
+        typecol <- which(grepl("Type",colnames(rawData)))
+        dfi <- 1
+        for(t in unique(rawData[,typecol])){
+            temp_df <- rawData[rawData[,typecol]==t,]
+            if(TESTPRINT) print(temp_df);
+            schoolcode_col <- which(grepl("School",colnames(temp_df)) & grepl("Code",colnames(temp_df)))
+            if(TESTPRINT) print(paste("dfi =",dfi));
+            temp_df <- temp_df[!duplicated(temp_df[,schoolcode_col]), ]
+            colnames(temp_df) <- paste0(t,"_",colnames(temp_df))
+            #print(row.names(temp_df))
+            row.names(temp_df) <- temp_df[,schoolcode_col]
+            temp_df <- temp_df[,!(grepl("School",colnames(temp_df)) & grepl("Code",colnames(temp_df)))]
+            temp_df <- temp_df[,!grepl("Type",colnames(temp_df))]
+            #print(row.names(temp_df))
+            dataframes[[dfi]] <- temp_df
+            dfi <- dfi+1
+        }
+    
+    }else if(grade_bool | subject_bool)
+    {
+         if(grade_bool){
+            if(TESTPRINT) print("Grade identified");
+            gradecol <- which(grepl("Grade",colnames(rawData)))
+            rawData[,gradecol] <- gsub("Grade| ","",rawData[,gradecol])
+            gu <- unique(rawData[,gradecol])
+            grade_data <- rawData[,gradecol]
+            if(length(gu)==1) {grvals <- c("")}
+            else {grvals <- gu}
+        }
+        else {grvals <- c(""); grade_data <- rep("", dim(rawData)[1])}
+        if(subject_bool){
+            subjectcol <- which(grepl("Subject",colnames(rawData)))
+            su <- unique(rawData[,subjectcol])
+            subject_data <- rawData[,subjectcol]
+            if(length(su)==1) {subvals <- c("")}
+            else {subvals <- su}
+            if(TESTPRINT) print(paste0("Subject identified: length(subvals)=",length(subvals)));
+        }
+        else {subvals <- c(""); subject_data <- rep("", dim(rawData)[1])}
+        dfi <- 1
+        if(TESTPRINT){
+            #print(rawData)
+            print("grvals")
+            print(grvals)
+            print("subvals")
+            print(subvals)
+        }
+        #if(TESTPRINT) print(rawData);
+        for (g in grvals){ for (s in subvals){
+            temp_df <- rawData[(grade_data==g) & (subject_data==s),]
+            if(TESTPRINT) print(temp_df);
+            schoolcode_col <- which(grepl("School",colnames(temp_df)) & grepl("Code",colnames(temp_df)))
+            if(TESTPRINT) print(paste("dfi =",dfi));
+            temp_df <- temp_df[!duplicated(temp_df[,schoolcode_col]), ]
+            colnames(temp_df) <- paste0(colnames(temp_df),"_","grlv",g,"_","sbtyp",s,"_")
+            #print(row.names(temp_df))
+            row.names(temp_df) <- temp_df[,schoolcode_col]
+            temp_df <- temp_df[,!(grepl("School",colnames(temp_df)) & grepl("Code",colnames(temp_df)))]
+            temp_df <- temp_df[,!(grepl("Grade",colnames(temp_df)) | grepl("Subject",colnames(temp_df)))]
+            #print(row.names(temp_df))
+            dataframes[[dfi]] <- temp_df
+            dfi <- dfi+1
+        }}
+    }
+    
+    if(length(dataframes)){
+        merged_data <- dataframes[[1]]
+        #if(TESTPRINT) print(merged_data);
+        for (i in 2:length(dataframes)){
+            next_df <- dataframes[[i]]
+            #exclude_bool <- (grepl("Subject_",colnames(next_df)) | grepl("Grade_",colnames(next_df)) | grepl("School_",colnames(next_df)) | !grepl(descriptor,colnames(next_df)))
+            #include <- which(!exclude_bool)
+            #next_df <- next_df[,colnames(next_df)[include]]
+            merged_data <- merge(merged_data, next_df, by=0,all=T)
+            rownames(merged_data) <- merged_data[,"Row.names"]
+            merged_data <- merged_data[,which(colnames(merged_data)!="Row.names")]
+            if(TESTPRINT) {
+                print(dim(merged_data))
+                #print(merged_data)
+            }
+        }
+        row.names(merged_data) <- str_extract(row.names(merged_data),"[[:digit:]]+")
+        merged_data <- merged_data[,!grepl("_School_",colnames(merged_data))]
+        #if(TESTPRINT) print(merged_data);
+        return(merged_data)
+    }
+    
+    if(!(grade_bool | subject_bool)){
+        if(TESTPRINT) print("IMMEDIATE CONVERSION");
+        schoolcode_bool <- grepl("School",colnames(rawData)) & grepl("Code",colnames(rawData))
+        schoolcode_col <- which(schoolcode_bool)
+        rawData <- rawData[!duplicated(rawData[,schoolcode_col]), ]
+        
+        omit <- is.na(as.numeric(str_extract(rawData[,schoolcode_col],"[[:digit:]]+")==""))
+        if(TESTPRINT){
+            #print(rawData)
+            print(paste("schoolcode_col",schoolcode_col))
+            #print(rawData[,schoolcode_col])
+            print("which(omit)",which(omit))
+            print(rawData[which(omit),])
+        }
+        rawData <- rawData[!omit,]
+        
+        row.names(rawData) <- str_extract(rawData[,schoolcode_col],"[[:digit:]]+")
+        rawData <- rawData[,!schoolcode_bool]
+        rawData <- rawData[,!grepl("_School_",colnames(rawData))]
+        if(TESTPRINT) print(rawData);
+        return(rawData)
+    }
+}
+```
+
+```{r}
+# data_read_new("sb1617.csv","test")
+# data_read_new("att.csv","test")
+# data_read_new("enroll.csv","test")
+# data_read_new("Sci1516.csv","test")
+# data_read_new("SAT1617.csv","test")
+# test_data <- data_read_new("sanctions.csv","sanction",TESTPRINT=1)
+# test_data
+id_data <- id_process("enroll.csv")
+id_data
+```
+
+
+```{r}
+processed_data <- list()
+for (i in 1:length(files)) {
+    f <- files[i]
+    print(gsub("\\.csv","",f))
+    processed_data[[i]] <- data_read_new(f,gsub("\\.csv","",f))
+}
+
+# test_data <- 
+# test_data
+#for (i in 1:length(files)) print(processed_data[[i]]);
+
+# for (i in 1:length(files)){
+#     print("-- -- -- -- -- -- -- --")
+#     print("-- -- -- -- -- -- -- --")
+#     print(colnames(processed_data[[i]])[!grepl("_School_",colnames(processed_data[[i]]))])
+#     print("-- -- -- -- -- -- -- --")
+#     print("-- -- -- -- -- -- -- --")
+# }
+```
+
+```{r}
+full_merge <- processed_data[[1]]
+print(files[1])
+for (i in 2:length(processed_data)){
+    print(files[i])
+    next_df <- processed_data[[i]]
+    full_merge <- merge(full_merge, next_df, by=0,all=T)
+    rownames(full_merge) <- full_merge[,"Row.names"]
+    full_merge <- full_merge[,which(colnames(full_merge)!="Row.names")]
+}
+row.names(full_merge) <- str_extract(row.names(full_merge),"[[:digit:]]+")
+#full_merge <- full_merge[,!grepl("_School_",colnames(full_merge))]
+print(head(full_merge))
+dim(full_merge)
+dim(full_merge)[1]*dim(full_merge)[2]
+
+colnames(full_merge)[grepl("grlv_|sbtyp_",colnames(full_merge))]
+colnames(full_merge) <- gsub("grlv_|sbtyp_","",colnames(full_merge))
+colnames(full_merge) <- gsub("cEntPers_","",colnames(full_merge))
+colnames(full_merge) <- gsub("sanctions_","",colnames(full_merge))
+colnames(full_merge) <- gsub("In-School Suspension","ISS",colnames(full_merge))
+colnames(full_merge) <- gsub("Out-of-School Suspension","OSS",colnames(full_merge))
+colnames(full_merge) <- gsub("Bus Suspension","BusSusp",colnames(full_merge))
+colnames(full_merge) <- gsub("Level 1Not MetLevel 1 Not Met","Level 1Not Met",colnames(full_merge))
+colnames(full_merge) <- gsub("Level 2ApproachingLevel 2Approaching","Level 2Approaching",colnames(full_merge))
+colnames(full_merge) <- gsub("Level 3MetLevel 3 Met","Level 3 Met",colnames(full_merge))
+colnames(full_merge) <- gsub("Level 4ExceededLevel 4 Exceeded","Level 4 Exceeded",colnames(full_merge))
+colnames(full_merge) <- gsub("Level 3&4Met or ExceededLevel 3&4 Met or Exceeded","Level 3&4 Met or Exceeded",colnames(full_merge))
+colnames(full_merge) <- gsub("Connecticut School Day SAT","",colnames(full_merge))
+
+full_merge <- merge(full_merge, id_data, by=0,all=T)
+rownames(full_merge) <- full_merge[,"Row.names"]
+full_merge <- full_merge[,which(colnames(full_merge)!="Row.names")]
+row.names(full_merge) <- str_extract(row.names(full_merge),"[[:digit:]]+")
+full_merge[,"District Code"] <- str_extract(full_merge[,"District Code"],"[[:digit:]]+")
+
+full_merge <- full_merge[,c(917:919,1:916),]
+
+head(full_merge)
+```
+
+
+
+
+```{r, warning=FALSE}
+DistrictIDfiles <- c(list.files("/Users/HomeFolder/Documents/Documents/D-Y--D-S/Courses/S&DS/230/Final Project/data/ID-District"))
+
+DistrictIDdatalist <- list()
+IDi <- 1
+for(f in DistrictIDfiles){
+    print(f)
+    d <- read.csv(paste0(filepath,"ID-District/",f),as.is=T,header=F)
+    colnames(d) <- gsub("=","",d[2,])
+    d <- d[3:dim(d)[1],]
+    rownames(d) <- d[,"OrganizationName"]
+    DistrictIDdatalist[[IDi]] <- d
+    IDi <- IDi + 1
+}
+
+Districts <- c()
+District_Codes <- c()
+dcount <- 1
+for (i in 1:(IDi-1)){
+    d <- DistrictIDdatalist[[i]]
+    Dists <- d[,"OrganizationName"]
+    Dist_Codes <- gsub("=","",d[,"OrganizationCode"])
+    for(j in 1:length(Dists)){
+        Districts[dcount] <- Dists[j]
+        District_Codes[dcount] <- Dist_Codes[j]
+        dcount <- dcount + 1
+    }
+}
+Districts
+District_Codes
+District_frame <- data.frame(District_Codes,row.names = Districts, stringsAsFactors=F)
+District_frame
+```
+
+
+```{r}
+SchoolIDfiles <- c(list.files("/Users/HomeFolder/Documents/Documents/D-Y--D-S/Courses/S&DS/230/Final Project/data/ID-School"))
+print(SchoolIDfiles)
+
+SchoolIDdatalist <- list()
+IDi <- 1
+for(f in SchoolIDfiles){
+    print(f)
+    d <- read.csv(paste0(filepath,"ID-School/",f),as.is=T,header=F)
+    colnames(d) <- gsub("=","",d[2,])
+    colnames(d) <- gsub("Kindergarten","K",colnames(d))
+    colnames(d) <- gsub("Grade ","",colnames(d))
+    d <- d[3:dim(d)[1],]
+    dup <- (d[,"OrganizationName"])[duplicated(d[,"OrganizationName"])]
+    if(length(dup)){
+        d <- d[!(d[,"OrganizationName"] %in% dup),]
+    }
+    rownames(d) <- d[,"OrganizationName"]
+    SchoolIDdatalist[[IDi]] <- d
+    IDi <- IDi + 1
+}
+
+Schools <- c()
+School_Codes <- c()
+School_Categories <- c()
+School_gradelevels <- c()
+scount <- 1
+for (i in 1:(IDi-1)){
+    d <- SchoolIDdatalist[[i]]
+    S_names <- d[,"OrganizationName"]
+    S_Codes <- gsub("=","",d[,"OrganizationCode"])
+    S_Types <- gsub("=","",d[,"OrganizationType"])
+    S_grades <- c()
+    sgi <- 1
+    for (r in rownames(d)){
+        rd <- as.numeric(as.vector(gsub("=","",d[r,])))
+        #print(rd)
+        glvl <- which(rd==1)
+        #print(glvl)
+        S_grades[sgi] <- paste0(colnames(d)[glvl[1]],"_",colnames(d)[glvl[length(glvl)]])
+        sgi <- sgi + 1
+    }
+    for(j in 1:length(S_names)){
+        Schools[scount] <- S_names[j]
+        School_Codes[scount] <- S_Codes[j]
+        School_Categories[scount] <- S_Types[j]
+        School_gradelevels[scount] <- S_grades[j]
+        scount <- scount + 1
+    }
+}
+
+scat_rep <- list(
+    c("CT Technical Education and Career","CTE"),
+    c("Endowed and Incorporated Academies","End_Inc"),
+    c("Nonpublic Elementary and Secondary","Nonpublic"),
+    c("Public Charter","Charter"),
+    c("Regional Education Service Center","Reg_Serv")
+)
+
+School_Categories <- gsub(" Schools","",School_Categories)
+for(i in 1:length(scat_rep)){
+    re <- scat_rep[[i]]
+    print(re[1])
+    print(re[2])
+    School_Categories <- gsub(re[1],re[2],School_Categories)
+}
+
+Schools
+School_Codes
+School_frame <- data.frame(Schools,row.names = School_Codes, stringsAsFactors=F)
+School_frame[,"Category"] <- School_Categories
+School_frame[,"gradelevels"] <- School_gradelevels
+full_merge[,"Category"] <- School_frame[rownames(full_merge),"Category"]
+full_merge[,"gradelevels"] <- School_frame[rownames(full_merge),"gradelevels"]
+full_merge <- full_merge[,c(1:3,920:921,4:919)]
+unique(full_merge[,"Category"])
+```
+
+
+```{r}
+full_merge <- full_merge[!is.na(full_merge[,"Category"]),]
+full_merge <- full_merge[!is.na(full_merge[,"School"]),]
+full_merge <- full_merge[full_merge[,"enroll_2012-13"]!="0",]
+for(s in c("ISS","OSS")){
+    for (c in grepcol(full_merge,s)) full_merge[,c] <- as.character(as.numeric(full_merge[,c])/as.numeric(full_merge[,gsub(s,"enroll",c)]));}
+head(full_merge)
+dim(full_merge)
+```
+
+
+```{r}
+expenditure <- read.csv(paste0(filepath,"alternative formats/perPupilExpeditures.csv"),as.is=T,header=F)
+
+expenditure_field_row <- get_field_row(expenditure,k1="District",k2="Type")
+colnames(expenditure) <- expenditure[expenditure_field_row,]
+expenditure <- expenditure[(expenditure_field_row+1):dim(expenditure)[1],]
+expenditure[,"District"] <- gsub("=","",expenditure[,"District"])
+expenditure[1,"District"]
+district_locs <- which(grepl(".",expenditure[,"District"]))
+expenditure[,"Type"] <- gsub("=","",expenditure[,"Type"])
+dist_span <- district_locs[2]-district_locs[1]
+for(i in district_locs){
+    print(i)
+    d <- expenditure[i,"District"]
+    print(d)
+    expenditure[i:(i+dist_span-1),"District"] <- District_frame[d,"District_Codes"]
+}
+
+expenditure <- expenditure[!is.na(expenditure[,"District"]),]
+expdists <- unique(c(expenditure[,"District"]))
+exptypes <- unique(c(expenditure[,"Type"]))
+expyears <- colnames(expenditure)[3:dim(expenditure)[2]]
+
+expenditure_merged <- data.frame(expdists,stringsAsFactors=F)
+for (t in exptypes){ for ( y in expyears){
+    expenditure_merged[,paste0(t,"_",y)] <- NA
+}}
+rownames(expenditure_merged) <- expenditure_merged[,"expdists"]
+for (r in rownames(expenditure_merged)){
+    for (t in exptypes){
+        for (y in expyears){
+            v <- expenditure[which((expenditure[,"District"]==r) & (expenditure[,"Type"]==t)),y]
+            expenditure_merged[r,paste0(t,"_",y)] <- v
+        }
+    }
+}
+expenditure
+expenditure_merged <- expenditure_merged[,!grepl("expdists",colnames(expenditure_merged))]
+colnames(expenditure_merged) <- paste0("dist.perpupil_",colnames(expenditure_merged))
+
+exprep <- list(
+    c("Instructional Staff and Services","staffserv"),
+    c("Instructional Supplies and Equipment","supplequip"),
+    c("Instruction and Educational Media Services","mediaserv"),
+    c("Student Support Services","suppserv"),
+    c("Administration and Support Services","adminserv"),
+    c("Plant Operation and Management","opmanage"),
+    c("Transportation","transport"),
+    c("Total Expenditures","total")
+)
+
+expreptypes <- exptypes
+for(i in 1:length(exprep)){
+    re <- exprep[[i]]
+    print(re[1])
+    print(re[2])
+    colnames(expenditure_merged) <- gsub(re[1],re[2],colnames(expenditure_merged))
+    expreptypes <- gsub(re[1],re[2],expreptypes)
+}
+
+for (col in colnames(expenditure_merged)) full_merge[,col] <- NA;
+head(full_merge[,930:964])
+
+length(unique(rownames(expenditure_merged)))
+length(unique(full_merge[,"District Code"]))
+expenditure_merged
+i <- 1
+rloclist <-list()
+for (r in rownames(expenditure_merged)){
+    #print(paste(r,r %in% full_merge[,"District Code"]))
+    rloclist[[i]] <- which(full_merge[,"District Code"]==r)
+    print(rloclist[[i]])
+    i <- i+1
+}
+i <- 1
+for (r in rownames(expenditure_merged)){
+    print(rloclist[[i]])
+    i <- i+1
+}
+i <- 1
+for (r in rownames(expenditure_merged)){
+    #print(paste(r,i))
+    #print(full_merge[rloclist[[i]],paste0("dist.perpupil_",t,"_",y)])
+    if(length(rloclist[[i]])){
+        print(rloclist[[i]])
+        for (t in expreptypes){
+            for (y in expyears){
+                 #print(paste0("dist.perpupil_",t,"_",y))
+                 #print(expenditure_merged[r,paste0("dist.perpupil_",t,"_",y)])
+                 #print(full_merge[(full_merge["District Code",]==r),paste0("dist.perpupil_",t,"_",y)])
+                full_merge[rloclist[[i]],paste0("dist.perpupil_",t,"_",y)] <- expenditure_merged[r,paste0("dist.perpupil_",t,"_",y)]
+            }
+        }
+    } else{
+        print(rloclist[[i]])
+        for (t in expreptypes){
+            for (y in expyears){
+                 #print(paste0("dist.perpupil_",t,"_",y))
+                 #print(expenditure_merged[r,paste0("dist.perpupil_",t,"_",y)])
+                 #print(full_merge[(full_merge["District Code",]==r),paste0("dist.perpupil_",t,"_",y)])
+                full_merge[rloclist[[i]],paste0("dist.perpupil_",t,"_",y)] <- NA
+            }
+        }
+    }
+    i <- i+1
+}
+full_merge[,930:964]
+colnames(full_merge) < gsub("-","_",colnames(full_merge))
+head(full_merge)
+for(c in colnames(full_merge)){
+    full_merge[,c] <- gsub("%","",full_merge[,c])
+}
+missing_strings <- c("*","N/A")
+head(full_merge)
+for(s in missing_strings){
+    full_merge[full_merge==s] <- NA
+}
+
+length(full_merge[!is.na(full_merge)])
+length(full_merge[!is.na(full_merge)])/(dim(full_merge)[1]*dim(full_merge)[2])
+dim(full_merge)
+dim(full_merge)[1]*dim(full_merge)[2]
+unique(full_merge$Category)
+```
+
+
+
+
+
+
+
+
+
+```{r}
+coursetake_gen <- function(option){
+    if(option=="half") {ct_gr <- 9:12}
+    else if(option=="full") {ct_gr <- 11:12}
+    
+    coursetake <- read.csv("/Users/HomeFolder/Documents/Documents/D-Y--D-S/Courses/S&DS/230/Final Project/data/alternative formats/courseen.csv",header=F,as.is=T)
+    hs_courseen <- coursetake[!is.na(as.numeric(coursetake$V5)) & (as.numeric(coursetake$V5) >= 9),]
+    hs_courseen$V2 <- str_extract(hs_courseen$V2,"[[:digit:]]+")
+    hs_courseen$V4 <- str_extract(hs_courseen$V4,"[[:digit:]]+")
+    for(i in c(5,8,11,14)) hs_courseen[,i] <- as.numeric(hs_courseen[,i])
+    hs_courseen <- hs_courseen[,c(1:6,8,11,14)]
+    #colnames(hs_courseen)
+    colnames(hs_courseen) <- c("District","District Code", "School", "School Code", "Grade", "Subject", "coursetake_2013_14", "coursetake_2014_15", "coursetake_2015_16")
+    head(hs_courseen)
+    
+    ctrep <- list(
+        c("English Language and Literature","Lit"),
+        c("Fine and Performing Arts","Art"),
+        c("Life and Physical Sciences","Sci"),
+        c("Mathematics","Math"),
+        c("Miscellaneous","Misc"),
+        c("Social Sciences and History","Hist_soc"),
+        c("Physical, Health, and Safety Education","PE"),
+        c("Foreign Language and Literature","Lang"),
+        c("Health Care Sciences","Healthcare"),
+        c("Communications and Audio/Visual Technology","CAVT"),
+        c("Hospitality and Tourism","Tourism"),
+        c("Transportation, Distribution, and Logistics","Logistics"),
+        c("Agriculture, Food, and Natural Resources","Agri"),
+        c("Business and Marketing","Busi"),
+        c("Computer and Information Sciences","CompSci"),
+        c("Engineering and Technology","EngTech"),
+        c("Human Services","Hum_serv"),
+        #c("Manufacturing",""),
+        c("Architecture and Construction","Arch"),
+        c("Public, Protective, and Government Services","Service"),
+        c("Nonsubject Specific","Nonspec"),
+        c("Military Science","MilSci"),
+        c("Religious Education and Theology","Religion")
+    )
+    for (i in 1:length(ctrep)){
+        re <- ctrep[[i]]
+        hs_courseen$Subject <- gsub (re[1], re[2], hs_courseen$Subject)
+    }
+    
+    print("Unique subjects")
+    (ct_sub <- unique(hs_courseen$Subject))
+    rownames(full_merge)
+    hs_courseen <- hs_courseen[(hs_courseen$Subject) %in% ct_an,]
+    
+    sum(hs_courseen$`School Code`==rownames(full_merge)[1])
+    print(rownames(full_merge) %in% unique(hs_courseen$`School Code`))
+    hs_coursetake <- data.frame(unique(hs_courseen$`School Code`),stringsAsFactors = F)
+    colnames(hs_coursetake) <- "School Code"
+    for (s in ct_an){
+        for (ys in c("2013_14","2014_15","2015_16")){
+            hs_coursetake[,paste0("coursetake_",s,"_",ys)] <- as.numeric(NA)
+        }
+    }
+    row.names(hs_coursetake) <- hs_coursetake$`School Code`
+    print(unique(hs_courseen$`School Code`) %in% rownames(hs_coursetake))
+    for (sc in unique(hs_courseen$`School Code`)){
+        sc <- as.character(sc)
+        #if(!(sc %in% ))
+        sdata <- hs_courseen[hs_courseen$`School Code`==sc,]
+        if(length(unique(sdata$`District Code`)) > 1) {next}
+        print(paste0("+ + + + + + + + School ID: ",sc," ",(sum(sc==rownames(hs_coursetake)))," + + + + + + + +"))
+        print(sum(hs_courseen$`School Code`==sc))
+        for (s in ct_an){
+            ssData <- sdata[sdata$Subject==s,]
+            #print(ssData)
+            #print(ssData)
+            avg_across_grades <- rep(0,3)
+            for (g in ct_gr){
+                #print(paste0("grade = ",g))
+                #if(sc=="1550361") {print(ssData[ssData$Grade==g,7:9])}
+                #print(as.numeric(as.vector(ssData[ssData$Grade==g,7:9])))
+                #cn <- paste0("coursetake_",ys)
+                avg_across_grades <- avg_across_grades + as.numeric(as.vector(ssData[ssData$Grade==g,7:9]))
+                #print(paste0("length = ",length(hs_courseen[(hs_courseen$Subject==s) & (hs_courseen$Grade==g),cn])))
+            }
+            avg_across_grades <- avg_across_grades/length(ct_gr)
+            #print(paste0("--------------------",s," ",cn,"--------------------"))
+            print(paste0(s,"  ",paste0(avg_across_grades,collapse=" ")))
+            hs_coursetake[as.character(sc),paste0("coursetake_",s,"_",c("2013_14","2014_15","2015_16"))] <- avg_across_grades
+        }
+    }
+    
+    hs_coursetake <- hs_coursetake[,which(colnames(hs_coursetake)!="School Code")]
+    colnames(hs_coursetake) <- paste0(option,"_",colnames(hs_coursetake))
+    return(hs_coursetake)
+}
+#head(full_merge)
+
+hs_coursetake_full <- coursetake_gen("full")
+full_merge <- merge(full_merge, hs_coursetake_full, by=0,all=T)
+rownames(full_merge) <- full_merge[,"Row.names"]
+full_merge <- full_merge[,which(colnames(full_merge)!="Row.names")]
+#head(full_merge[,967:984])
+
+
+hs_coursetake_half <- coursetake_gen("half")
+full_merge <- merge(full_merge, hs_coursetake_half, by=0,all=T)
+rownames(full_merge) <- full_merge[,"Row.names"]
+full_merge <- full_merge[,which(colnames(full_merge)!="Row.names")]
+
+print(max(nonna(full_merge$coursetake_half_2013_14_Lit)))
+print(max(nonna(full_merge$coursetake_full_2013_14_Lit)))
+
+head(full_merge)
+na_rows <- c()
+non_na_rownames <- c()
+j <- 1
+for (i in 1:dim(full_merge)[1]){
+    r <- rownames(full_merge)[i]
+    s <- sum(as.logical(is.na(full_merge[r,])))
+    if(s>960 & s!=dim(full_merge)[1]){print(paste(i,r,s))}
+    if(s<=960){
+        non_na_rownames[j] <- r
+        j <- j+1
+    }
+}
+dim(full_merge)[1] - length(non_na_rownames)
+full_merge <- full_merge[non_na_rownames,]
+head(full_merge)
+sum(is.na(full_merge$`abs_2015-16`))
+rind <- 538
+full_merge[rownames(full_merge)[rind],!as.logical(is.na(full_merge[rownames(full_merge)[rind],]))]
+
+write.csv(full_merge,paste0(filepath,"merge/full_merge.csv"))
+```
+
